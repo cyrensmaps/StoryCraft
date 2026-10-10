@@ -152,9 +152,13 @@ pub(crate) fn frame_for_engine(engine: &Engine) -> Frame {
             completed: engine.is_completed(),
         };
     };
+    let reachable: Vec<&Id> = engine.reachable_objects().map(|o| &o.id).collect();
     let objects = engine
         .visible_objects()
-        .map(|(_, o)| RenderObject::resolve(o, engine.display_state(o), engine.is_interactive(o), lookup))
+        .map(|(_, o)| {
+            let interactive = reachable.contains(&&o.id) && engine.is_interactive(o);
+            RenderObject::resolve(o, engine.display_state(o), interactive, lookup)
+        })
         .collect();
     Frame {
         slide: slide.id.clone(),

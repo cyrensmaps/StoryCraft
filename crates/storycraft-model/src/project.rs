@@ -287,6 +287,12 @@ pub struct Layer {
     /// When shown, pause the base layer timeline until this layer is hidden.
     #[serde(default)]
     pub pause_base_timeline: bool,
+    /// While shown, objects on the base layer cannot be clicked or hovered.
+    #[serde(default)]
+    pub prevent_base_clicks: bool,
+    /// Hide this layer automatically when its timeline ends.
+    #[serde(default)]
+    pub hide_when_timeline_ends: bool,
 }
 
 impl Layer {
@@ -299,6 +305,8 @@ impl Layer {
             duration_ms: 5000,
             hide_other_layers: true,
             pause_base_timeline: false,
+            prevent_base_clicks: false,
+            hide_when_timeline_ends: false,
         }
     }
 }

@@ -306,11 +306,25 @@ impl Engine {
 
     /// The topmost interactive, enabled object under `p` (slide coordinates).
     pub fn hit_test(&self, p: Point) -> Option<&Object> {
-        let objects: Vec<_> = self.visible_objects().map(|(_, o)| o).collect();
+        let objects: Vec<_> = self.reachable_objects().collect();
         objects
             .into_iter()
             .rev()
             .find(|o| self.object_state(o) != state_names::DISABLED && self.is_interactive(o) && contains_rotated(o, p))
+    }
+
+    /// Visible objects the learner can interact with: everything on screen
+    /// except base-layer objects while a layer that blocks them is shown.
+    fn reachable_objects(&self) -> impl Iterator<Item = &Object> {
+        let base_blocked = self.base_blocked();
+        let base = self.current_slide().map(|s| s.base.id.clone());
+        self.visible_objects().filter(move |(l, _)| !(base_blocked && Some(&l.id) == base.as_ref())).map(|(_, o)| o)
+    }
+
+    /// Whether a visible layer prevents clicks on the base layer.
+    fn base_blocked(&self) -> bool {
+        let Some(slide) = self.current_slide() else { return false };
+        self.layers.iter().skip(1).any(|run| slide.layer(&run.layer).is_some_and(|l| l.prevent_base_clicks))
     }
 
     // --- input -------------------------------------------------------------
@@ -372,9 +386,9 @@ impl Engine {
     }
 
     /// Click an object directly (keyboard activation, tests). Ignored unless
-    /// the object is on screen and enabled.
+    /// the object is on screen, enabled and not blocked by a layer.
     pub fn click(&mut self, id: &Id) {
-        let Some(object) = self.visible_objects().map(|(_, o)| o).find(|o| &o.id == id) else {
+        let Some(object) = self.reachable_objects().find(|o| &o.id == id) else {
             return;
         };
         let state = self.object_state(object).to_owned();
@@ -505,6 +519,11 @@ impl Engine {
             .collect();
         let base_ended = matches!(&pending, Pending::TimelineEnds(id) if id == &slide.base.id);
         let auto_advance = slide.advance == Advance::Automatically;
+        let auto_hide = match &pending {
+            Pending::TimelineEnds(id) => slide.layers.iter().find(|l| &l.id == id && l.hide_when_timeline_ends),
+            _ => None,
+        }
+        .map(|l| l.id.clone());
 
         for (layer, trigger) in triggers {
             if self.slide_generation != generation {
@@ -514,6 +533,10 @@ impl Engine {
                 continue;
             }
             self.execute(&layer, &trigger.action);
+        }
+        // Built-in behaviour runs after the layer's own "timeline ends" triggers.
+        if let Some(layer) = auto_hide.filter(|_| self.slide_generation == generation) {
+            self.hide_layer(&layer);
         }
         if base_ended && auto_advance && self.slide_generation == generation {
             self.jump(&SlideTarget::Next);

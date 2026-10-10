@@ -376,3 +376,33 @@ fn empty_project_is_an_error() {
     p.scenes.clear();
     assert_eq!(Engine::new(p).err(), Some(EngineError::NoSlides));
 }
+
+#[test]
+fn layer_can_block_base_layer_clicks() {
+    let mut p = sample_project();
+    p.scenes[0].slides[0].layers[0].prevent_base_clicks = true;
+    let (more, start) = (object_id(&p, "More Button"), object_id(&p, "Start Button"));
+    let mut e = started(p);
+    e.click(&more);
+    let inside_start = Point { x: 640.0, y: 450.0 };
+    assert!(e.hit_test(inside_start).is_none_or(|o| o.id != start), "base objects are not hit");
+    e.click(&start);
+    assert_eq!(slide_name(&e), "Welcome", "clicks on the base layer are ignored");
+    assert!(!e.frame().objects.iter().find(|o| o.id == start).unwrap().interactive);
+}
+
+#[test]
+fn layer_can_hide_itself_when_its_timeline_ends() {
+    let mut p = sample_project();
+    let info = &mut p.scenes[0].slides[0].layers[0];
+    info.hide_when_timeline_ends = true;
+    info.duration_ms = 1000;
+    let more = object_id(&p, "More Button");
+    let mut e = started(p);
+    e.click(&more);
+    assert_eq!(e.layer_runs().len(), 2);
+    e.tick(999.0);
+    assert_eq!(e.layer_runs().len(), 2);
+    e.tick(1.0);
+    assert_eq!(e.layer_runs().len(), 1, "the layer hid itself");
+}

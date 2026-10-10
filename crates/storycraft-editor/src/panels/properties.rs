@@ -253,6 +253,8 @@ fn slide_properties(app: &mut EditorApp, ui: &mut Ui) {
         });
         ui.checkbox(&mut layer.hide_other_layers, "Hide other layers when shown");
         ui.checkbox(&mut layer.pause_base_timeline, "Pause the base layer timeline while shown");
+        ui.checkbox(&mut layer.prevent_base_clicks, "Prevent clicking on the base layer while shown");
+        ui.checkbox(&mut layer.hide_when_timeline_ends, "Hide this layer when its timeline ends");
     }
 
     ui.add_space(8.0);

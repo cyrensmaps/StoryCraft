@@ -21,11 +21,12 @@
 //!   `trigLst`.
 //! * Text formatting is `Block/Style@Justification` and
 //!   `Span/Style@FontFamily,FontSize,FontIsBold,FontIsItalic,ForegroundColor`.
-//!   Unstyled text takes its size from the object's `resize@fontSz` (12 by
-//!   default); `+minor`/`+major` font names refer to the theme's fonts.
+//!   Unstyled text takes its font and size from the object's
+//!   `resize@fontNm,fontSz` (12 by default). `+minor`/`+major` refer to the
+//!   theme fonts in the master's `fonts@minor,major`.
 //! * Layer options: `pause` (pause base timeline), `stop` (hide other slide
-//!   layers), `modal` (prevent clicks on the base layer), `hideEnd` (hide when
-//!   the layer's timeline finishes).
+//!   layers), `modal` (prevent clicking on the base layer), `hideEnd` (hide
+//!   the layer when its timeline finishes).
 //! * Each condition's `andOr` joins it to the condition before it (the first
 //!   condition's value is unused).
 //! * Colours are `srgbClr@val` or `schemeClr@val`; scheme colours come from
@@ -51,7 +52,33 @@ const NIL_GUID: &str = "00000000-0000-0000-0000-000000000000";
 /// Unstyled text normally records it in `resize@fontSz`.
 const DEFAULT_FONT_SIZE: f32 = 12.0;
 
-type Palette = HashMap<String, Color>;
+/// A master's theme: its colour scheme and its major/minor fonts.
+#[derive(Clone, Default)]
+struct Palette {
+    colors: HashMap<String, Color>,
+    /// "major" / "minor" → font name.
+    fonts: HashMap<String, String>,
+}
+
+impl Palette {
+    fn get(&self, key: &str) -> Option<&Color> {
+        self.colors.get(key)
+    }
+
+    /// Resolve a font name, including the theme references `+major`/`+minor`,
+    /// to a CSS font-family value.
+    fn font(&self, name: &str) -> Option<String> {
+        let name = match name.strip_prefix('+') {
+            Some(theme) => self.fonts.get(theme)?.as_str(),
+            None => name,
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        Some(if name.contains(' ') { format!("\"{name}\", sans-serif") } else { format!("{name}, sans-serif") })
+    }
+}
 
 struct Package<'z, R> {
     zip: &'z mut zip::ZipArchive<R>,
@@ -128,7 +155,7 @@ pub(crate) fn import<R: Read + Seek>(zip: &mut zip::ZipArchive<R>, title: &str) 
         warnings: BTreeSet::new(),
         var_kinds: HashMap::new(),
         palettes: HashMap::new(),
-        default_palette: Palette::new(),
+        default_palette: Palette::default(),
         media: HashMap::new(),
         assets: HashMap::new(),
         doc: Document::new(project),
@@ -223,13 +250,20 @@ impl Importer {
         masters.sort();
         for master_path in masters {
             let Ok(master) = pkg.xml(&master_path) else { continue };
-            let Some(list) = master.child("clrLst") else { continue };
-            let palette: Palette = list
-                .children
-                .iter()
+            let colors: HashMap<String, Color> = master
+                .child("clrLst")
+                .into_iter()
+                .flat_map(|list| list.children.iter())
                 .filter_map(|entry| Some((entry.name.clone(), srgb(entry.child("srgbClr")?.a("val"))?)))
                 .collect();
-            if self.default_palette.is_empty() {
+            let fonts = master
+                .child("fonts")
+                .into_iter()
+                .flat_map(|f| ["major", "minor"].map(|k| (k.to_owned(), f.a(k).to_owned())))
+                .filter(|(_, v)| !v.is_empty())
+                .collect();
+            let palette = Palette { colors, fonts };
+            if self.default_palette.colors.is_empty() {
                 self.default_palette = palette.clone();
             }
             self.palettes.insert(master.a("g").to_owned(), palette.clone());
@@ -297,12 +331,8 @@ impl Importer {
             let mut l = self.layer(layer, &name, &palette, false);
             l.pause_base_timeline = layer.a("pause") == "true";
             l.hide_other_layers = layer.a("stop") != "false";
-            if layer.a("modal") == "true" {
-                self.warn(format!("layer {name:?}: \"prevent clicking on the base layer\" is not supported yet"));
-            }
-            if layer.a("hideEnd") == "true" {
-                self.warn(format!("layer {name:?}: \"hide when the timeline finishes\" is not supported yet"));
-            }
+            l.prevent_base_clicks = layer.a("modal") == "true";
+            l.hide_when_timeline_ends = layer.a("hideEnd") == "true";
             slide.layers.push(l);
         }
         slide
@@ -425,6 +455,11 @@ impl Importer {
             return None;
         }
         let mut content = TextContent::new(text);
+        // Unstyled text uses the object's default font, usually the theme's.
+        let default_font = node.child("resize").and_then(|r| palette.font(r.a("fontNm")));
+        if let Some(family) = default_font.or_else(|| palette.font("+minor")) {
+            content.font_family = family;
+        }
         content.font_size =
             node.child("resize").and_then(|r| r.attr_f32("fontSz")).filter(|s| *s > 0.0).unwrap_or(DEFAULT_FONT_SIZE);
         if let Some(c) = node.path(&["bG", "foreClr"]).and_then(|c| color(c, palette, None)) {
@@ -436,7 +471,11 @@ impl Importer {
             content.align = HAlign::Left;
             content.valign = VAlign::Top;
         }
+        let family = style.family.as_deref().and_then(|f| palette.font(f));
         style.apply(&mut content);
+        if let Some(family) = family {
+            content.font_family = family;
+        }
         Some(content)
     }
 
@@ -470,9 +509,7 @@ impl Importer {
             style.italic = flag("FontIsItalic");
             style.color = first.attr("ForegroundColor").and_then(|c| c.parse().ok());
             style.size = first.attr_f32("FontSize").filter(|s| *s > 0.0);
-            // "+minor"/"+major" name the theme's fonts, which are not mapped
-            // yet, so those keep StoryCraft's default font.
-            style.family = first.attr("FontFamily").and_then(non_empty).filter(|f| !f.starts_with('+'));
+            style.family = first.attr("FontFamily").and_then(non_empty);
         }
         let distinct = |nodes: &[&Node]| nodes.iter().map(|n| n.attrs.clone()).collect::<BTreeSet<_>>().len();
         let partly_styled = !span_styles.is_empty() && span_styles.len() < spans.len();
@@ -732,9 +769,6 @@ impl TextStyle {
         }
         if let Some(size) = self.size {
             t.font_size = size;
-        }
-        if let Some(f) = self.family {
-            t.font_family = f;
         }
     }
 }

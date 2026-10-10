@@ -81,7 +81,7 @@ fn package(story: &[u8], slide: &str) -> Pkg {
         .file("story/_rels/story.xml.rels", &rels(&[("Rs1", "slide", "/story/slides/slide.xml")]))
         .file(
             "story/slideMasters/slideMaster.xml",
-            br#"<master g="m1"><clrLst><dk1><srgbClr val="000000"/></dk1><lt1><srgbClr val="FFFFFF"/></lt1><accent1><srgbClr val="4F81BD"/></accent1><custom1><srgbClr val="1888E7"/></custom1></clrLst></master>"#,
+            br#"<master g="m1"><clrLst><dk1><srgbClr val="000000"/></dk1><lt1><srgbClr val="FFFFFF"/></lt1><accent1><srgbClr val="4F81BD"/></accent1><custom1><srgbClr val="1888E7"/></custom1></clrLst><fonts name="Open Sans" major="Open Sans" minor="Open Sans"/></master>"#,
         )
         .file(
             "story/slideMasters/_rels/slideMaster.xml.rels",
@@ -148,7 +148,7 @@ fn full_slide() -> String {
           <trig g="start"><data enabled="true" event="OnStart" action="adjustVar" NavigationIntent="Unspecified"><other varG="{SCORE}" op="ass" dblVal="0"/></data></trig>
         </trigLst>
         <sldLayerLst>
-          <sldLayer g="{LAYER}" name="Popup" pause="true" stop="false">
+          <sldLayer g="{LAYER}" name="Popup" pause="true" stop="false" modal="true" hideEnd="true">
             <tmProps min="3000"/>
             <shapeLst>
               <oval g="close-1" typeName="" name="Oval">
@@ -185,6 +185,8 @@ fn imports_project_structure() {
     assert_eq!(slide.layers[0].name, "Popup");
     assert!(slide.layers[0].pause_base_timeline);
     assert!(!slide.layers[0].hide_other_layers, "stop=false turns off hiding other layers");
+    assert!(slide.layers[0].prevent_base_clicks);
+    assert!(slide.layers[0].hide_when_timeline_ends);
     assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
 }
 
@@ -199,7 +201,7 @@ fn imports_objects() {
     assert_eq!(text.text.as_ref().unwrap().text, "Count: %Score%");
     assert_eq!(text.timing, Timing { start_ms: 1000, duration_ms: Some(2000) });
     assert_eq!(text.text.as_ref().unwrap().font_size, 12.0, "unstyled text uses resize@fontSz");
-    assert_eq!(text.text.as_ref().unwrap().font_family, "sans-serif", "theme font names keep the default");
+    assert_eq!(text.text.as_ref().unwrap().font_family, "\"Open Sans\", sans-serif", "+minor is the theme font");
 
     let rect = &objects[1];
     assert_eq!(rect.name, "Box", "the author's name wins over the default");
@@ -329,7 +331,7 @@ fn imports_formatting_outlines_and_more_events() {
     let text = base.objects[0].text.as_ref().unwrap();
     assert_eq!((text.align, text.bold, text.color), (HAlign::Center, true, Color::rgb(255, 0, 0)));
     assert_eq!(text.font_size, 36.0);
-    assert_eq!(text.font_family, "Arial");
+    assert_eq!(text.font_family, "Arial, sans-serif");
     assert_eq!(base.objects[1].style.stroke, Some(Stroke { color: Color::rgb(0x8F, 0, 0), width: 7.0 }));
 
     let event = |id: &str| base.triggers.iter().find(|t| t.id.as_str() == id).unwrap();
