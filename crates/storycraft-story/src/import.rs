@@ -20,8 +20,9 @@
 //!   `stateLst/state` (each a full copy of the object), and their own
 //!   `trigLst`.
 //! * Text formatting is `Block/Style@Justification` and
-//!   `Span/Style@FontSize,FontIsBold,FontIsItalic,ForegroundColor`. Unstyled
-//!   text stores no size at all.
+//!   `Span/Style@FontFamily,FontSize,FontIsBold,FontIsItalic,ForegroundColor`.
+//!   Unstyled text takes its size from the object's `resize@fontSz` (12 by
+//!   default); `+minor`/`+major` font names refer to the theme's fonts.
 //! * Layer options: `pause` (pause base timeline), `stop` (hide other slide
 //!   layers), `modal` (prevent clicks on the base layer), `hideEnd` (hide when
 //!   the layer's timeline finishes).
@@ -46,9 +47,9 @@ use crate::dom::{self, Node};
 use crate::{ImportError, Imported};
 
 const NIL_GUID: &str = "00000000-0000-0000-0000-000000000000";
-/// Storyline stores no font size for default-styled text; this stands in
-/// until the theme's default text size is mapped.
-const DEFAULT_FONT_SIZE: f32 = 20.0;
+/// Storyline's default text size, used when an object records none.
+/// Unstyled text normally records it in `resize@fontSz`.
+const DEFAULT_FONT_SIZE: f32 = 12.0;
 
 type Palette = HashMap<String, Color>;
 
@@ -424,7 +425,8 @@ impl Importer {
             return None;
         }
         let mut content = TextContent::new(text);
-        content.font_size = DEFAULT_FONT_SIZE;
+        content.font_size =
+            node.child("resize").and_then(|r| r.attr_f32("fontSz")).filter(|s| *s > 0.0).unwrap_or(DEFAULT_FONT_SIZE);
         if let Some(c) = node.path(&["bG", "foreClr"]).and_then(|c| color(c, palette, None)) {
             content.color = c;
         } else if matches!(kind, ObjectKind::Button) {
@@ -468,8 +470,9 @@ impl Importer {
             style.italic = flag("FontIsItalic");
             style.color = first.attr("ForegroundColor").and_then(|c| c.parse().ok());
             style.size = first.attr_f32("FontSize").filter(|s| *s > 0.0);
-            // Not seen in samples yet; read if present.
-            style.family = first.attr("FontFamilyName").or_else(|| first.attr("FontFamily")).and_then(non_empty);
+            // "+minor"/"+major" name the theme's fonts, which are not mapped
+            // yet, so those keep StoryCraft's default font.
+            style.family = first.attr("FontFamily").and_then(non_empty).filter(|f| !f.starts_with('+'));
         }
         let distinct = |nodes: &[&Node]| nodes.iter().map(|n| n.attrs.clone()).collect::<BTreeSet<_>>().len();
         let partly_styled = !span_styles.is_empty() && span_styles.len() < spans.len();

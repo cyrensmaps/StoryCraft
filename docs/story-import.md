@@ -9,7 +9,7 @@ Opening `.story` files is a core goal. The importer is built from sample project
 - scenes and slides (names, slide size, advance mode, timeline length)
 - layers (name, timeline length, "pause base layer", "hide other slide layers")
 - text boxes, rectangles, rounded rectangles, ellipses, triangles, buttons and pictures, with position, fill and outline (including theme colours), text and alt text
-- text formatting: alignment, size, bold, italic and colour (one style per text box)
+- text formatting: alignment, font, size, bold, italic and colour (one style per text box)
 - object timing (start, duration, "show until end") and "initially hidden"
 - states, including built-in button states and colours defined relative to Normal
 - user variables (number, true/false, text)
@@ -19,7 +19,7 @@ Opening `.story` files is a core goal. The importer is built from sample project
 
 Anything not converted is listed as a note after import. Known gaps:
 
-- font family (not present in the samples so far), and the default size of unstyled text
+- the theme's own fonts (`+minor`/`+major`), which use StoryCraft's default font for now
 - the layer options "prevent clicking on the base layer" and "hide when the timeline finishes" (noted on import)
 - gradients, other shape types, audio and video, quizzes
 

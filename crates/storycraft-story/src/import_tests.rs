@@ -101,7 +101,7 @@ fn full_slide() -> String {
           <textBox g="text-1" typeName="" name="Text Box" initState="">
             <tmCtxLst><txtTmCtx start="1000" dur="2000" untilEnd="false"/></tmCtxLst>
             <loc l="10" t="20" r="210" b="70"/>
-            <text>{label}</text><plain>Count: %Score%</plain>
+            <text>{label}</text><plain>Count: %Score%</plain><resize fontNm="+minor" fontSz="12"/>
           </textBox>
           <rect g="{BOX}" typeName="Box" name="Rectangle" initState="Hidden">
             <tmCtxLst><txtTmCtx start="0" dur="5000" untilEnd="true"/></tmCtxLst>
@@ -198,6 +198,8 @@ fn imports_objects() {
     assert_eq!(text.frame, Rect::new(10.0, 20.0, 200.0, 50.0));
     assert_eq!(text.text.as_ref().unwrap().text, "Count: %Score%");
     assert_eq!(text.timing, Timing { start_ms: 1000, duration_ms: Some(2000) });
+    assert_eq!(text.text.as_ref().unwrap().font_size, 12.0, "unstyled text uses resize@fontSz");
+    assert_eq!(text.text.as_ref().unwrap().font_family, "sans-serif", "theme font names keep the default");
 
     let rect = &objects[1];
     assert_eq!(rect.name, "Box", "the author's name wins over the default");
@@ -304,7 +306,7 @@ fn unknown_things_become_warnings() {
 #[test]
 fn imports_formatting_outlines_and_more_events() {
     let styled = escape(
-        r##"<Document><Content><Block><Style Justification="Center"/><Span Text="Red"><Style FontSize="36" FontIsBold="True" ForegroundColor="#FF0000"/></Span></Block></Content></Document>"##,
+        r##"<Document><Content><Block><Style Justification="Center"/><Span Text="Red"><Style FontFamily="Arial" FontSize="36" FontIsBold="True" ForegroundColor="#FF0000"/></Span></Block></Content></Document>"##,
     );
     let slide = format!(
         r#"<sld g="slide-a" name="A" layoutG="{LAYOUT}"><tmProps min="5000"/>
@@ -327,6 +329,7 @@ fn imports_formatting_outlines_and_more_events() {
     let text = base.objects[0].text.as_ref().unwrap();
     assert_eq!((text.align, text.bold, text.color), (HAlign::Center, true, Color::rgb(255, 0, 0)));
     assert_eq!(text.font_size, 36.0);
+    assert_eq!(text.font_family, "Arial");
     assert_eq!(base.objects[1].style.stroke, Some(Stroke { color: Color::rgb(0x8F, 0, 0), width: 7.0 }));
 
     let event = |id: &str| base.triggers.iter().find(|t| t.id.as_str() == id).unwrap();
