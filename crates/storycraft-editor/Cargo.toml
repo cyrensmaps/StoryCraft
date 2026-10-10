@@ -21,3 +21,8 @@ egui.workspace = true
 image.workspace = true
 rfd.workspace = true
 serde_json.workspace = true
+
+# The preview shows the real published player in the system web view
+# (WebView2 / WKWebView). Linux keeps the built-in preview for now.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+wry.workspace = true

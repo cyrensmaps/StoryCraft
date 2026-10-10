@@ -13,7 +13,7 @@ Early development (v0.1). What works today:
 | Desktop editor (pure Rust, egui) | Scenes and slides, layers, text, shapes, buttons, pictures and web objects, move and resize, properties, undo/redo, copy/paste |
 | Interactivity | Triggers (jump, show/hide layer, change state, set variable, timeline control, open URL, complete/exit), conditions with AND/OR, built-in Hover, Down, Visited, Selected, Disabled and Hidden states, custom states, `%Variable%` text |
 | Timeline | Per-layer timelines, timed entrances and exits, automatic slide advance |
-| Preview | In-app preview using the same engine as published courses |
+| Preview | In-app preview that runs the real published course in the system web view (WebView2 on Windows, WKWebView on macOS), so web objects work without publishing; Linux uses a built-in preview for now |
 | Publishing | HTML5 (runs from a web server or straight from disk), SCORM 1.2, SCORM 2004 (4th edition), xAPI (Tin Can) and cmi5, all with completion tracking, bookmarking and resume |
 | Storyline `.story` import | **In progress.** The inspection tooling is done; the format mapping is being built from sample files. See [docs/story-import.md](docs/story-import.md) |
 

@@ -10,6 +10,8 @@ mod history;
 mod panels;
 mod preview;
 mod textures;
+#[cfg(any(windows, target_os = "macos"))]
+mod web_preview;
 mod widgets;
 
 fn main() -> eframe::Result {

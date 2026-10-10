@@ -55,7 +55,11 @@ cmi5.xml               cmi5
 
 eframe/egui. The UI edits `EditorApp::doc` directly. Undo works by snapshot: each frame the project is compared with its state before the UI ran, and edits coalesce until the pointer is released and input pauses (`history.rs`). Commands that replace the document or move through history run between frames so they are never recorded as edits.
 
-`draw.rs` paints engine `Frame`s. The edit canvas builds a static frame with `Frame::for_editing`, and the preview asks a live `Engine` for one, so editing and preview share a renderer.
+`draw.rs` paints engine `Frame`s for the edit canvas (`Frame::for_editing`).
+
+The preview (`web_preview.rs`) publishes the course to memory as an HTML package and shows it in a `wry` child web view (WebView2 / WKWebView) over the central panel, served through a `storycraft://` custom protocol. Learners and authors therefore see the same player, including web objects. The web view is a native window drawn above egui, so it is hidden while a menu or dialog is open. Where no web view is available (Linux for now, or if it fails to start) `preview.rs` drives the engine directly and paints with `draw.rs`.
+
+On Windows with the GNU toolchain, WebView2 links against `WebView2Loader.dll`; the editor's `build.rs` copies it next to the executable. MSVC builds link it statically.
 
 ### `storycraft-story`
 

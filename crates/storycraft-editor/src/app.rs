@@ -72,7 +72,11 @@ pub struct EditorApp {
     pub history: History,
     pub sel: Selection,
     pub textures: Textures,
+    /// The built-in preview (used where no web view is available).
     pub preview: Option<Preview>,
+    /// The preview in the system web view, showing the published course.
+    #[cfg(any(windows, target_os = "macos"))]
+    web_preview: Option<crate::web_preview::Session>,
     pub right_tab: RightTab,
     pub clipboard: Vec<Object>,
     pub canvas: CanvasState,
@@ -98,6 +102,8 @@ impl EditorApp {
             history: History::default(),
             textures: Textures::default(),
             preview: None,
+            #[cfg(any(windows, target_os = "macos"))]
+            web_preview: None,
             right_tab: RightTab::Properties,
             clipboard: Vec::new(),
             canvas: CanvasState::default(),
@@ -196,7 +202,7 @@ impl EditorApp {
         self.dirty = false;
         self.history.clear();
         self.textures.clear();
-        self.preview = None;
+        self.close_previews();
         self.sel.slide = SlideLocation { scene: usize::MAX, slide: 0 };
         self.sanitize_selection();
     }
@@ -286,6 +292,41 @@ impl EditorApp {
         let frame = Rect::new(0.0, 0.0, (size.width * 0.8).round(), (size.height * 0.8).round());
         let kind = ObjectKind::Web { source, display: storycraft_model::WebDisplay::OnSlide };
         self.insert_object(Object::new(name, kind, frame));
+    }
+
+    fn previewing(&self) -> bool {
+        #[cfg(any(windows, target_os = "macos"))]
+        if self.web_preview.is_some() {
+            return true;
+        }
+        self.preview.is_some()
+    }
+
+    fn close_previews(&mut self) {
+        self.preview = None;
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            self.web_preview = None;
+        }
+    }
+
+    /// Preview the course as learners will see it: the published player in
+    /// the system web view where available, otherwise the built-in preview.
+    fn start_preview(&mut self, from: Option<Id>) {
+        #[cfg(any(windows, target_os = "macos"))]
+        match storycraft_export::build(&prune_media(&self.doc), Target::Html) {
+            Ok(package) => self.web_preview = Some(crate::web_preview::Session::new(package, from)),
+            Err(e) => self.error(format!("Preview failed:\n\n{e}")),
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        self.start_builtin_preview(from);
+    }
+
+    fn start_builtin_preview(&mut self, from: Option<Id>) {
+        match Preview::new(&self.doc.project, from.as_ref()) {
+            Ok(p) => self.preview = Some(p),
+            Err(e) => self.error(e),
+        }
     }
 
     /// Publish to a temporary folder and open it in the system browser, which
@@ -511,10 +552,7 @@ impl EditorApp {
                 Command::PreviewInBrowser => self.preview_in_browser(),
                 Command::Preview { from_current } => {
                     let from = from_current.then(|| self.slide().id.clone());
-                    match Preview::new(&self.doc.project, from.as_ref()) {
-                        Ok(p) => self.preview = Some(p),
-                        Err(e) => self.error(e),
-                    }
+                    self.start_preview(from);
                 }
             }
             self.sanitize_selection();
@@ -974,7 +1012,7 @@ impl EditorApp {
 }
 
 impl eframe::App for EditorApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
         if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.allow_close {
@@ -988,7 +1026,7 @@ impl eframe::App for EditorApp {
 
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu_bar(ui);
-            if self.preview.is_none() {
+            if !self.previewing() {
                 self.toolbar(ui);
             }
         });
@@ -1002,7 +1040,33 @@ impl eframe::App for EditorApp {
             });
         });
 
-        if let Some(preview) = &mut self.preview {
+        #[cfg(any(windows, target_os = "macos"))]
+        let web_preview_open = self.web_preview.is_some();
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let web_preview_open = {
+            let _ = &frame;
+            false
+        };
+
+        if web_preview_open {
+            #[cfg(any(windows, target_os = "macos"))]
+            {
+                let covered = self.dialog.is_some() || egui::Popup::is_any_open(&ctx);
+                let mut outcome = crate::web_preview::Outcome::Open;
+                if let Some(session) = &mut self.web_preview {
+                    egui::CentralPanel::default().show(ui, |ui| outcome = session.ui(ui, frame, covered));
+                }
+                match outcome {
+                    crate::web_preview::Outcome::Open => ctx.request_repaint_after(Duration::from_millis(250)),
+                    crate::web_preview::Outcome::Closed => self.web_preview = None,
+                    crate::web_preview::Outcome::Failed(e) => {
+                        self.web_preview = None;
+                        self.status = format!("Using the built-in preview: {e}");
+                        self.start_builtin_preview(None);
+                    }
+                }
+            }
+        } else if let Some(preview) = &mut self.preview {
             let mut closed = false;
             egui::CentralPanel::default().show(ui, |ui| {
                 closed = preview.ui(ui, &mut self.textures, &self.doc.media);

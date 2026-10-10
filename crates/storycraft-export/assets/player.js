@@ -377,6 +377,9 @@
       lms = connected;
       if (!lms && target !== "html") console.warn("StoryCraft: no LMS found; progress will not be tracked.");
       if (lms && lms.saved) callWithString("sc_restore", lms.saved);
+      // The editor's preview can start on a chosen slide (?sc-start=<slide id>).
+      var startSlide = target === "html" && new URLSearchParams(window.location.search).get("sc-start");
+      if (startSlide) callWithString("sc_restore", JSON.stringify({ slide: startSlide }));
       nav.hidden = !(course.player && course.player.show_nav_buttons);
       document.body.style.background = css(course.player && course.player.backdrop);
       layout();
