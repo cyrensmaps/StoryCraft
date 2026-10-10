@@ -338,6 +338,7 @@ fn course_settings(app: &mut EditorApp, ui: &mut Ui, current_slide: &storycraft_
             Completion::AllSlidesViewed => "All slides viewed".to_owned(),
             Completion::SlidesViewed { count } => format!("{count} slides viewed"),
             Completion::OnTrigger => "A trigger completes it".to_owned(),
+            Completion::QuizSubmitted => "Quiz results are submitted".to_owned(),
         };
         ComboBox::from_id_salt("completion").selected_text(label).show_ui(ui, |ui| {
             ui.selectable_value(&mut p.lms.completion, Completion::AllSlidesViewed, "All slides viewed");
@@ -348,6 +349,7 @@ fn course_settings(app: &mut EditorApp, ui: &mut Ui, current_slide: &storycraft_
                 p.lms.completion = Completion::SlidesViewed { count: 1 };
             }
             ui.selectable_value(&mut p.lms.completion, Completion::OnTrigger, "A trigger completes it");
+            ui.selectable_value(&mut p.lms.completion, Completion::QuizSubmitted, "Quiz results are submitted");
         });
         ui.end_row();
         if let Completion::SlidesViewed { count } = &mut p.lms.completion {

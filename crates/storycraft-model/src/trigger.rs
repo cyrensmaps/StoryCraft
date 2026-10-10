@@ -96,6 +96,12 @@ pub enum Action {
     /// Mark the course complete (and passed) in the LMS.
     CompleteCourse,
     ExitCourse,
+    /// Check the answer on the current question slide.
+    SubmitInteraction,
+    /// Report the quiz score and pass/fail to the LMS.
+    SubmitResults,
+    /// Clear all quiz answers so the quiz can be retaken.
+    ResetResults,
 }
 
 impl Action {
@@ -112,6 +118,9 @@ impl Action {
             Action::OpenUrl { .. } => "Open URL",
             Action::CompleteCourse => "Complete course",
             Action::ExitCourse => "Exit course",
+            Action::SubmitInteraction => "Submit interaction",
+            Action::SubmitResults => "Submit results",
+            Action::ResetResults => "Reset results",
         }
     }
 }
@@ -199,6 +208,12 @@ pub enum Condition {
     ObjectState {
         object: Id,
         state: String,
+        #[serde(default)]
+        negate: bool,
+    },
+    /// True when the quiz score reaches the passing percentage (or, with
+    /// `negate`, when it does not).
+    QuizPassed {
         #[serde(default)]
         negate: bool,
     },

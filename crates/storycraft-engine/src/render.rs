@@ -136,6 +136,9 @@ impl Frame {
 pub(crate) fn frame_for_engine(engine: &Engine) -> Frame {
     let project = engine.project();
     let lookup = |name: &str| {
+        if let Some(value) = engine.results_variable(name) {
+            return Some(value);
+        }
         let var = project.variable_by_name(name)?;
         engine.variable(&var.id).map(|v| v.to_string())
     };

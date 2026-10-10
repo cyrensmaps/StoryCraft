@@ -14,6 +14,7 @@ mod geometry;
 mod id;
 mod object;
 mod project;
+mod quiz;
 pub mod sample;
 mod trigger;
 mod variable;
@@ -28,6 +29,7 @@ pub use project::{
     Advance, Asset, Completion, FORMAT_VERSION, Layer, LmsSettings, PlayerSettings, Project, Scene, Slide,
     SlideLocation,
 };
+pub use quiz::{Choice, Feedback, MatchPair, Question, QuestionKind, QuizSettings};
 pub use trigger::{
     Action, Comparison, Condition, ConditionClause, Event, Join, LayerTarget, Operand, SlideTarget, Trigger, VarOp,
 };

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Color, Id, Object, Size, Trigger, Variable};
+use crate::{Color, Id, Object, QuizSettings, Size, Trigger, Variable};
 
 /// Bumped whenever the serialised layout changes incompatibly.
 pub const FORMAT_VERSION: u32 = 1;
@@ -27,6 +27,8 @@ pub struct Project {
     pub lms: LmsSettings,
     #[serde(default)]
     pub player: PlayerSettings,
+    #[serde(default)]
+    pub quiz: QuizSettings,
 }
 
 impl Project {
@@ -43,6 +45,7 @@ impl Project {
             start_slide: None,
             lms: LmsSettings::default(),
             player: PlayerSettings::default(),
+            quiz: QuizSettings::default(),
         }
     }
 
@@ -132,6 +135,38 @@ impl Project {
                     self.validate_trigger(slide, trigger, &at, &mut problems);
                 }
             }
+            if let Some(question) = &slide.question {
+                let at = format!("slide {:?}", slide.name);
+                for choice in question.choices() {
+                    if slide.find_object(&choice.object).is_none() {
+                        problems.push(format!("{at}: answer choice {} is not on this slide", choice.object));
+                    }
+                }
+                let feedback = &question.feedback;
+                for layer in [&feedback.correct, &feedback.incorrect, &feedback.try_again].into_iter().flatten() {
+                    if !slide.layers.iter().any(|l| &l.id == layer) {
+                        problems.push(format!("{at}: feedback layer {layer} does not exist"));
+                    }
+                }
+                let correct = question.choices().iter().filter(|c| c.correct).count();
+                match &question.kind {
+                    crate::QuestionKind::MultipleChoice { .. } | crate::QuestionKind::TrueFalse { .. }
+                        if correct != 1 =>
+                    {
+                        problems.push(format!("{at}: the question needs exactly one correct choice"));
+                    }
+                    crate::QuestionKind::MultipleResponse { .. } if correct == 0 => {
+                        problems.push(format!("{at}: the question needs at least one correct choice"));
+                    }
+                    crate::QuestionKind::FillIn { answers, .. } if answers.iter().all(|a| a.trim().is_empty()) => {
+                        problems.push(format!("{at}: the question has no accepted answers"));
+                    }
+                    crate::QuestionKind::Matching { pairs } if pairs.len() < 2 => {
+                        problems.push(format!("{at}: a matching question needs at least two pairs"));
+                    }
+                    _ => {}
+                }
+            }
         }
         problems
     }
@@ -191,6 +226,7 @@ impl Project {
                     }
                 }
                 Condition::ObjectState { object, .. } => check_object(object, problems),
+                Condition::QuizPassed { .. } => {}
             }
         }
     }
@@ -229,6 +265,9 @@ pub struct Slide {
     pub layers: Vec<Layer>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
+    /// Makes this a question slide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<crate::Question>,
 }
 
 impl Slide {
@@ -241,6 +280,7 @@ impl Slide {
             base: Layer::new("Base Layer"),
             layers: Vec::new(),
             notes: String::new(),
+            question: None,
         }
     }
 
@@ -351,6 +391,8 @@ pub enum Completion {
     SlidesViewed { count: u32 },
     /// Complete only when a Complete course trigger runs.
     OnTrigger,
+    /// Complete when quiz results are submitted (and report passed/failed).
+    QuizSubmitted,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -116,6 +116,11 @@ impl Preview {
                     self.note = Some("Completion would be reported to the LMS now.".into());
                 }
                 Effect::SlideChanged(_) => {}
+                Effect::Notice(message) => self.note = Some(message),
+                Effect::QuizSubmitted(r) => {
+                    let verdict = if r.passed { "passed" } else { "failed" };
+                    self.note = Some(format!("Quiz submitted: {}% ({verdict})", r.percent));
+                }
             }
         }
 

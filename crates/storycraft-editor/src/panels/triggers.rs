@@ -159,7 +159,11 @@ fn action_params(ui: &mut Ui, action: &mut Action, project: &Project, slide: &Sl
             ui.add(egui::TextEdit::singleline(url).hint_text("https://"));
             ui.end_row();
         }
-        Action::CompleteCourse | Action::ExitCourse => {}
+        Action::CompleteCourse
+        | Action::ExitCourse
+        | Action::SubmitInteraction
+        | Action::SubmitResults
+        | Action::ResetResults => {}
     }
 }
 
@@ -229,27 +233,36 @@ fn conditions_editor(ui: &mut Ui, clauses: &mut Vec<ConditionClause>, project: &
 
 fn condition_editor(ui: &mut Ui, condition: &mut Condition, project: &Project, slide: &Slide) {
     let is_var = matches!(condition, Condition::Variable { .. });
-    ComboBox::from_id_salt("cond-kind")
-        .selected_text(if is_var { "variable" } else { "state of" })
-        .width(80.0)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(is_var, "variable").clicked() && !is_var {
-                if let Some(v) = project.variables.first() {
-                    *condition = Condition::Variable {
-                        variable: v.id.clone(),
-                        cmp: Comparison::Eq,
-                        value: Operand::Literal(v.value.kind().default_value()),
-                    };
-                }
-            }
-            if ui.selectable_label(!is_var, "state of").clicked() && is_var {
-                *condition = Condition::ObjectState {
-                    object: first_object(slide),
-                    state: state_names::NORMAL.into(),
-                    negate: false,
+    let is_state = matches!(condition, Condition::ObjectState { .. });
+    let is_quiz = matches!(condition, Condition::QuizPassed { .. });
+    let kind_label = if is_var {
+        "variable"
+    } else if is_state {
+        "state of"
+    } else {
+        "the quiz"
+    };
+    ComboBox::from_id_salt("cond-kind").selected_text(kind_label).width(80.0).show_ui(ui, |ui| {
+        if ui.selectable_label(is_var, "variable").clicked() && !is_var {
+            if let Some(v) = project.variables.first() {
+                *condition = Condition::Variable {
+                    variable: v.id.clone(),
+                    cmp: Comparison::Eq,
+                    value: Operand::Literal(v.value.kind().default_value()),
                 };
             }
-        });
+        }
+        if ui.selectable_label(is_state, "state of").clicked() && !is_state {
+            *condition = Condition::ObjectState {
+                object: first_object(slide),
+                state: state_names::NORMAL.into(),
+                negate: false,
+            };
+        }
+        if ui.selectable_label(is_quiz, "the quiz").clicked() && !is_quiz {
+            *condition = Condition::QuizPassed { negate: false };
+        }
+    });
     match condition {
         Condition::Variable { variable, cmp, value } => {
             variable_picker(ui, "cond-var", project, variable);
@@ -271,6 +284,15 @@ fn condition_editor(ui: &mut Ui, condition: &mut Condition, project: &Project, s
                 },
             );
             state_picker(ui, "cond-state", slide.find_object(object).map(|(_, o)| o), state);
+        }
+        Condition::QuizPassed { negate } => {
+            ComboBox::from_id_salt("quiz-passed")
+                .selected_text(if *negate { "is failed" } else { "is passed" })
+                .width(80.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(negate, false, "is passed");
+                    ui.selectable_value(negate, true, "is failed");
+                });
         }
     }
 }
@@ -299,6 +321,9 @@ fn action_templates(project: &Project, slide: &Slide) -> Vec<Action> {
         Action::OpenUrl { url: "https://".into() },
         Action::CompleteCourse,
         Action::ExitCourse,
+        Action::SubmitInteraction,
+        Action::SubmitResults,
+        Action::ResetResults,
     ]
 }
 
@@ -355,6 +380,9 @@ fn describe(t: &Trigger, project: &Project, slide: &Slide) -> String {
         Action::RestartTimeline { layer: l } => format!("Restart timeline of {}", layer_target(l)),
         Action::OpenUrl { url } => format!("Open {url}"),
         Action::CompleteCourse => "Complete the course".to_owned(),
+        Action::SubmitInteraction => "Submit the answer".to_owned(),
+        Action::SubmitResults => "Submit the quiz results".to_owned(),
+        Action::ResetResults => "Reset the quiz".to_owned(),
         Action::ExitCourse => "Exit the course".to_owned(),
     };
     let event = match &t.event {

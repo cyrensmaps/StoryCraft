@@ -21,6 +21,7 @@
 //! * Object states persist for the whole session, so revisiting a slide
 //!   shows the states it was left in.
 
+mod quiz;
 mod render;
 mod text;
 
@@ -29,9 +30,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Deserialize, Serialize};
 use storycraft_model::{
     Action, Advance, Comparison, Completion, Condition, ConditionClause, Event, Id, Join, Layer, LayerTarget, Object,
-    Operand, Point, Project, Slide, SlideLocation, SlideTarget, Trigger, Value, ValueKind, VarOp, state_names,
+    Operand, Point, Project, QuestionKind, Slide, SlideLocation, SlideTarget, Trigger, Value, ValueKind, VarOp,
+    state_names,
 };
 
+pub use quiz::{Answer, QuizResults};
 pub use render::{Frame, RenderObject, RenderText};
 pub use text::substitute_variables;
 
@@ -50,6 +53,10 @@ pub enum Effect {
     Exit,
     /// A new slide is showing (useful for LMS bookmarking).
     SlideChanged(Id),
+    /// A message for the learner, e.g. "answer the question first".
+    Notice(String),
+    /// Quiz results were submitted: report them to the LMS.
+    QuizSubmitted(QuizResults),
 }
 
 /// Saved learner progress, for LMS suspend data and resume.
@@ -64,6 +71,9 @@ pub struct Snapshot {
     pub visited: Vec<Id>,
     #[serde(default)]
     pub completed: bool,
+    /// Quiz answers by question slide id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<(Id, Answer)>,
 }
 
 /// Timeline state of one visible layer.
@@ -111,6 +121,8 @@ pub struct Engine {
     vars: HashMap<Id, Value>,
     states: HashMap<Id, String>,
     visited: HashSet<Id>,
+    /// Quiz answers by question slide id.
+    answers: HashMap<Id, Answer>,
     current: Option<usize>,
     history: Vec<usize>,
     /// `layers[0]` is the base layer; the rest are shown layers in show order.
@@ -137,6 +149,7 @@ impl Engine {
             vars,
             states: HashMap::new(),
             visited: HashSet::new(),
+            answers: HashMap::new(),
             current: None,
             history: Vec::new(),
             layers: Vec::new(),
@@ -181,6 +194,12 @@ impl Engine {
         }
         self.visited = snapshot.visited.iter().filter(|id| self.project.slide(id).is_some()).cloned().collect();
         self.completed = snapshot.completed;
+        self.answers = snapshot
+            .answers
+            .iter()
+            .filter(|(id, _)| self.project.slide(id).is_some_and(|s| s.question.is_some()))
+            .cloned()
+            .collect();
         self.current =
             snapshot.slide.as_ref().and_then(|id| self.order.iter().position(|loc| &self.slide_at(*loc).id == id));
     }
@@ -192,13 +211,154 @@ impl Engine {
         states.sort();
         let mut visited: Vec<_> = self.visited.iter().cloned().collect();
         visited.sort();
+        let mut answers: Vec<_> = self.answers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        answers.sort_by(|a, b| a.0.cmp(&b.0));
         Snapshot {
             slide: self.current_slide().map(|s| s.id.clone()),
             variables,
             states,
             visited,
             completed: self.completed,
+            answers,
         }
+    }
+
+    // --- quiz --------------------------------------------------------------
+
+    /// The learner's answer on a question slide, if they have started it.
+    pub fn answer(&self, slide: &Id) -> Option<&Answer> {
+        self.answers.get(slide)
+    }
+
+    pub fn quiz_results(&self) -> QuizResults {
+        quiz::results(&self.project, |id| self.answers.get(id).cloned())
+    }
+
+    /// `%Results.…%` values for text.
+    pub fn results_variable(&self, name: &str) -> Option<String> {
+        let r = self.quiz_results();
+        let number = |n: f32| Value::Number(n as f64).to_string();
+        Some(match name {
+            "Results.ScorePoints" => number(r.points),
+            "Results.MaxPoints" => number(r.max_points),
+            "Results.ScorePercent" => r.percent.to_string(),
+            "Results.PassPercent" => number(r.passing_percent),
+            _ => return None,
+        })
+    }
+
+    /// Type an answer into the current fill-in-the-blank question.
+    pub fn set_text_answer(&mut self, text: &str) {
+        if let Some(answer) = self.open_answer(|k| matches!(k, QuestionKind::FillIn { .. })) {
+            answer.text = text.to_owned();
+        }
+    }
+
+    /// Pair matching item `item` with answer `answer` (or clear it with `None`)
+    /// on the current matching question.
+    pub fn set_match(&mut self, item: usize, answer: Option<usize>) {
+        let Some(pairs) = self.current_slide().and_then(|s| match s.question.as_ref().map(|q| &q.kind) {
+            Some(QuestionKind::Matching { pairs }) => Some(pairs.len()),
+            _ => None,
+        }) else {
+            return;
+        };
+        if item >= pairs || answer.is_some_and(|a| a >= pairs) {
+            return;
+        }
+        if let Some(state) = self.open_answer(|k| matches!(k, QuestionKind::Matching { .. })) {
+            state.matches.resize(pairs, None);
+            state.matches[item] = answer;
+        }
+    }
+
+    /// The current slide's answer, if its question is of the wanted kind and
+    /// not yet final.
+    fn open_answer(&mut self, kind: impl Fn(&QuestionKind) -> bool) -> Option<&mut Answer> {
+        let slide = self.current_slide()?;
+        slide.question.as_ref().filter(|q| kind(&q.kind))?;
+        let id = slide.id.clone();
+        Some(self.answers.entry(id).or_default()).filter(|a| !a.is_locked())
+    }
+
+    /// A click on an answer choice: select it (and, for single-answer
+    /// questions, deselect the others). Returns false if `object` is not a
+    /// choice on the current question.
+    fn select_choice(&mut self, object: &Id) -> bool {
+        let Some(slide) = self.current_slide() else { return false };
+        let Some(question) = slide.question.clone() else { return false };
+        if !question.choices().iter().any(|c| &c.object == object) {
+            return false;
+        }
+        let answer = self.answers.entry(slide.id.clone()).or_default();
+        if answer.is_locked() {
+            return true;
+        }
+        if matches!(question.kind, QuestionKind::MultipleResponse { .. }) {
+            if let Some(i) = answer.selected.iter().position(|s| s == object) {
+                answer.selected.remove(i);
+            } else {
+                answer.selected.push(object.clone());
+            }
+        } else {
+            answer.selected = vec![object.clone()];
+        }
+        let selected = answer.selected.clone();
+        for choice in question.choices() {
+            let state = if selected.contains(&choice.object) { state_names::SELECTED } else { state_names::NORMAL };
+            self.states.insert(choice.object.clone(), state.to_owned());
+        }
+        true
+    }
+
+    fn submit_interaction(&mut self) {
+        let Some(slide) = self.current_slide() else { return };
+        let Some(question) = slide.question.clone() else { return };
+        let answer = self.answers.entry(slide.id.clone()).or_default();
+        if answer.is_locked() {
+            return;
+        }
+        let Some(correct) = quiz::grade(&question, answer) else {
+            self.effects.push(Effect::Notice("Please answer the question before submitting.".into()));
+            return;
+        };
+        answer.attempts += 1;
+        let out_of_attempts = question.attempts != 0 && answer.attempts >= question.attempts;
+        if correct || out_of_attempts {
+            answer.result = Some(correct);
+        }
+        let feedback = &question.feedback;
+        let layer = if correct {
+            feedback.correct.clone()
+        } else if out_of_attempts {
+            feedback.incorrect.clone()
+        } else {
+            feedback.try_again.clone().or_else(|| feedback.incorrect.clone())
+        };
+        if let Some(layer) = layer {
+            self.show_layer(&layer);
+        }
+    }
+
+    fn submit_results(&mut self) {
+        let results = self.quiz_results();
+        self.effects.push(Effect::QuizSubmitted(results));
+        if self.project.lms.completion == Completion::QuizSubmitted {
+            self.complete();
+        }
+    }
+
+    fn reset_results(&mut self) {
+        let choices: Vec<Id> = self
+            .project
+            .slides()
+            .filter_map(|(_, s)| s.question.as_ref())
+            .flat_map(|q| q.choices().iter().map(|c| c.object.clone()))
+            .collect();
+        for object in choices {
+            self.states.insert(object, state_names::NORMAL.to_owned());
+        }
+        self.answers.clear();
     }
 
     // --- queries -----------------------------------------------------------
@@ -395,11 +555,19 @@ impl Engine {
         if state == state_names::DISABLED {
             return;
         }
-        // Built-in state behaviour runs before the object's own triggers so
-        // that an explicit "change state" trigger has the final say.
-        let new_state = if object.state(state_names::SELECTED).is_some() {
+        let has_selected = object.state(state_names::SELECTED).is_some();
+        let has_visited = object.state(state_names::VISITED).is_some();
+        // Answer choices select through the question; other objects use the
+        // built-in state behaviour. Either runs before the object's own
+        // triggers so that an explicit "change state" trigger has the final say.
+        if self.select_choice(id) {
+            self.queue.push_back(Pending::Broadcast(Event::Click { object: id.clone() }));
+            self.pump();
+            return;
+        }
+        let new_state = if has_selected {
             Some(if state == state_names::SELECTED { state_names::NORMAL } else { state_names::SELECTED })
-        } else if object.state(state_names::VISITED).is_some() && state == state_names::NORMAL {
+        } else if has_visited && state == state_names::NORMAL {
             Some(state_names::VISITED)
         } else {
             None
@@ -469,7 +637,7 @@ impl Engine {
         let done = match self.project.lms.completion {
             Completion::AllSlidesViewed => self.visited.len() >= self.order.len(),
             Completion::SlidesViewed { count } => self.visited.len() >= count as usize,
-            Completion::OnTrigger => false,
+            Completion::OnTrigger | Completion::QuizSubmitted => false,
         };
         if done {
             self.complete();
@@ -572,6 +740,7 @@ impl Engine {
                     .unwrap_or(state_names::NORMAL);
                 (current == state) != *negate
             }
+            Condition::QuizPassed { negate } => self.quiz_results().passed != *negate,
         }
     }
 
@@ -627,6 +796,9 @@ impl Engine {
             Action::OpenUrl { url } => self.effects.push(Effect::OpenUrl(url.clone())),
             Action::CompleteCourse => self.complete(),
             Action::ExitCourse => self.effects.push(Effect::Exit),
+            Action::SubmitInteraction => self.submit_interaction(),
+            Action::SubmitResults => self.submit_results(),
+            Action::ResetResults => self.reset_results(),
         }
     }
 
@@ -741,5 +913,7 @@ fn contains_rotated(object: &Object, p: Point) -> bool {
     object.frame.contains(local)
 }
 
+#[cfg(test)]
+mod quiz_tests;
 #[cfg(test)]
 mod tests;
