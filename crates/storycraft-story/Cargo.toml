@@ -9,6 +9,10 @@ rust-version.workspace = true
 
 [dependencies]
 storycraft-model = { workspace = true, features = ["archive"] }
+md-5.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
 zip.workspace = true
+
+[dev-dependencies]
+storycraft-engine.workspace = true

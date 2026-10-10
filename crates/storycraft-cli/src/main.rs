@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -32,6 +33,13 @@ enum Command {
     Inspect { story: PathBuf },
     /// Write the built-in sample course to a .storycraft file.
     Sample { out: PathBuf },
+    /// Convert a Storyline .story project into a .storycraft project.
+    Convert {
+        story: PathBuf,
+        /// Output .storycraft file (defaults to the input name).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -88,7 +96,37 @@ fn main() -> Result<()> {
         Command::Inspect { story } => {
             let report =
                 storycraft_story::inspect(&story).with_context(|| format!("inspecting {}", story.display()))?;
-            print!("{report}");
+            // Ignore write errors so piping into `head` does not panic.
+            let _ = write!(std::io::stdout().lock(), "{report}");
+        }
+        Command::Convert { story, out } => {
+            let imported =
+                storycraft_story::import(&story).with_context(|| format!("importing {}", story.display()))?;
+            for w in &imported.warnings {
+                eprintln!("note: {w}");
+            }
+            let p = &imported.document.project;
+            println!(
+                "{} scene(s), {} slide(s), {} variable(s), {} asset(s)",
+                p.scenes.len(),
+                p.slide_count(),
+                p.variables.len(),
+                p.assets.len()
+            );
+            for (loc, slide) in p.slides() {
+                let objects: usize = slide.layers().map(|l| l.objects.len()).sum();
+                let triggers: usize = slide.layers().map(|l| l.triggers.len()).sum();
+                println!(
+                    "  {}.{} {:?}: {} layer(s), {objects} object(s), {triggers} trigger(s)",
+                    loc.scene + 1,
+                    loc.slide + 1,
+                    slide.name,
+                    slide.layers.len() + 1
+                );
+            }
+            let out = out.unwrap_or_else(|| story.with_extension(storycraft_model::archive::EXTENSION));
+            imported.document.save(&out).with_context(|| format!("writing {}", out.display()))?;
+            println!("Wrote {}", out.display());
         }
         Command::Sample { out } => {
             Document::new(storycraft_model::sample::sample_project())

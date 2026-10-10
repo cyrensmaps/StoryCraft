@@ -11,11 +11,16 @@
 //!
 //! # Status
 //!
-//! The format mapping is built up from sample files. Until a construct has
-//! been mapped, [`import`] reports [`ImportError::NotYetMapped`]. Use
-//! [`inspect`] (`storycraft-cli inspect file.story`) to produce the structural
-//! report the mapping is written from.
+//! The mapping covers scenes, slides, layers, text boxes, basic shapes,
+//! buttons, pictures, states, timing, variables, and the common triggers and
+//! conditions. Anything else is skipped and listed in [`Imported::warnings`].
+//! The module docs of `import.rs` record what is known about the format; use
+//! [`inspect`] (`storycraft-cli inspect file.story`) to extend it.
 
+mod dom;
+mod import;
+#[cfg(test)]
+mod import_tests;
 mod inspect;
 
 use std::fs::File;
@@ -36,11 +41,8 @@ pub enum ImportError {
     Zip(zip::result::ZipError),
     #[error("malformed XML in {entry}: {message}")]
     Xml { entry: String, message: String },
-    #[error(
-        "importing .story projects is not mapped yet. Run `storycraft-cli inspect` on sample files \
-         and see docs/story-import.md to help map the format"
-    )]
-    NotYetMapped,
+    #[error("unsupported project: {0}")]
+    Unsupported(String),
 }
 
 /// The result of an import: the converted project plus notes about anything
@@ -64,9 +66,10 @@ pub fn inspect(path: impl AsRef<Path>) -> Result<Inspection, ImportError> {
 
 /// Convert a `.story` project into a StoryCraft document.
 pub fn import(path: impl AsRef<Path>) -> Result<Imported, ImportError> {
+    let path = path.as_ref();
+    let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Imported course".into());
     let file = BufReader::new(File::open(path)?);
-    let _zip = open_zip(file)?;
-    Err(ImportError::NotYetMapped)
+    import::import(&mut open_zip(file)?, &title)
 }
 
 #[cfg(test)]

@@ -2,3 +2,7 @@
 *.swp
 .DS_Store
 /out
+
+# Private Storyline samples: never commit (see docs/clean-room.md)
+/Storyline sample files/
+*.story
