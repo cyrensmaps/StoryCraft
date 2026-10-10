@@ -44,6 +44,20 @@ Build each sample in Storyline 360 with **as little as possible in it**, so diff
 
 For each sample, note anything you set that isn't visible in the file name (exact colours, sizes, times).
 
+### Quiz samples
+
+Use Storyline's own question slides (Insert Slide → Quizzing → Graded) with made-up text. Note the points, attempts and feedback settings you used.
+
+| # | File name | Contents |
+|---|---|---|
+| 23 | `23-quiz-multiple-choice.story` | One multiple-choice question: 3 choices, the 2nd correct, 10 points, 2 attempts, default feedback layers |
+| 24 | `24-quiz-true-false.story` | One true/false question, "False" correct |
+| 25 | `25-quiz-multiple-response.story` | One multiple-response question: 4 choices, the 1st and 3rd correct |
+| 26 | `26-quiz-fill-in.story` | One fill-in-the-blank question with two accepted answers, e.g. "Paris" and "paris, france" |
+| 27 | `27-quiz-matching.story` | One matching drop-down question with 3 pairs |
+| 28 | `28-quiz-results.story` | Questions 23 and 24 plus a results slide with passing score 80%, and the course set to report pass/fail |
+
+
 ## Sharing
 
 Run `storycraft-cli inspect <file>.story > <file>.txt` for each sample and share the `.txt` reports in an issue. If you are willing to license the sample `.story` files under MIT OR Apache-2.0, attach them too; they become test fixtures under `crates/storycraft-story/tests/fixtures/`.
