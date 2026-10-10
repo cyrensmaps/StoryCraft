@@ -19,6 +19,14 @@
 //!   document in `text` (`Document/Content/Block/Span@Text`), states in
 //!   `stateLst/state` (each a full copy of the object), and their own
 //!   `trigLst`.
+//! * Text formatting is `Block/Style@Justification` and
+//!   `Span/Style@FontSize,FontIsBold,FontIsItalic,ForegroundColor`. Unstyled
+//!   text stores no size at all.
+//! * Layer options: `pause` (pause base timeline), `stop` (hide other slide
+//!   layers), `modal` (prevent clicks on the base layer), `hideEnd` (hide when
+//!   the layer's timeline finishes).
+//! * Each condition's `andOr` joins it to the condition before it (the first
+//!   condition's value is unused).
 //! * Colours are `srgbClr@val` or `schemeClr@val`; scheme colours come from
 //!   the `clrLst` of the master that owns the slide's layout (`layoutG`).
 //! * Media files are matched by the MD5 checksum stored in `media/md5Checksum`.
@@ -38,8 +46,8 @@ use crate::dom::{self, Node};
 use crate::{ImportError, Imported};
 
 const NIL_GUID: &str = "00000000-0000-0000-0000-000000000000";
-/// Storyline stores no font size for default-styled text in the samples seen
-/// so far; this is used until styled samples are mapped.
+/// Storyline stores no font size for default-styled text; this stands in
+/// until the theme's default text size is mapped.
 const DEFAULT_FONT_SIZE: f32 = 20.0;
 
 type Palette = HashMap<String, Color>;
@@ -287,6 +295,7 @@ impl Importer {
             let name = non_empty(layer.a("name")).unwrap_or_else(|| "Layer".to_owned());
             let mut l = self.layer(layer, &name, &palette, false);
             l.pause_base_timeline = layer.a("pause") == "true";
+            l.hide_other_layers = layer.a("stop") != "false";
             if layer.a("modal") == "true" {
                 self.warn(format!("layer {name:?}: \"prevent clicking on the base layer\" is not supported yet"));
             }
@@ -458,8 +467,8 @@ impl Importer {
             style.bold = flag("FontIsBold");
             style.italic = flag("FontIsItalic");
             style.color = first.attr("ForegroundColor").and_then(|c| c.parse().ok());
+            style.size = first.attr_f32("FontSize").filter(|s| *s > 0.0);
             // Not seen in samples yet; read if present.
-            style.size = first.attr_f32("Size").or_else(|| first.attr_f32("FontSize")).filter(|s| *s > 0.0);
             style.family = first.attr("FontFamilyName").or_else(|| first.attr("FontFamily")).and_then(non_empty);
         }
         let distinct = |nodes: &[&Node]| nodes.iter().map(|n| n.attrs.clone()).collect::<BTreeSet<_>>().len();

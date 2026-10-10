@@ -148,7 +148,7 @@ fn full_slide() -> String {
           <trig g="start"><data enabled="true" event="OnStart" action="adjustVar" NavigationIntent="Unspecified"><other varG="{SCORE}" op="ass" dblVal="0"/></data></trig>
         </trigLst>
         <sldLayerLst>
-          <sldLayer g="{LAYER}" name="Popup" pause="true">
+          <sldLayer g="{LAYER}" name="Popup" pause="true" stop="false">
             <tmProps min="3000"/>
             <shapeLst>
               <oval g="close-1" typeName="" name="Oval">
@@ -184,6 +184,7 @@ fn imports_project_structure() {
     assert_eq!(slide.layers.len(), 1);
     assert_eq!(slide.layers[0].name, "Popup");
     assert!(slide.layers[0].pause_base_timeline);
+    assert!(!slide.layers[0].hide_other_layers, "stop=false turns off hiding other layers");
     assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
 }
 
@@ -303,7 +304,7 @@ fn unknown_things_become_warnings() {
 #[test]
 fn imports_formatting_outlines_and_more_events() {
     let styled = escape(
-        r##"<Document><Content><Block><Style Justification="Center"/><Span Text="Red"><Style FontIsBold="True" ForegroundColor="#FF0000"/></Span></Block></Content></Document>"##,
+        r##"<Document><Content><Block><Style Justification="Center"/><Span Text="Red"><Style FontSize="36" FontIsBold="True" ForegroundColor="#FF0000"/></Span></Block></Content></Document>"##,
     );
     let slide = format!(
         r#"<sld g="slide-a" name="A" layoutG="{LAYOUT}"><tmProps min="5000"/>
@@ -325,6 +326,7 @@ fn imports_formatting_outlines_and_more_events() {
 
     let text = base.objects[0].text.as_ref().unwrap();
     assert_eq!((text.align, text.bold, text.color), (HAlign::Center, true, Color::rgb(255, 0, 0)));
+    assert_eq!(text.font_size, 36.0);
     assert_eq!(base.objects[1].style.stroke, Some(Stroke { color: Color::rgb(0x8F, 0, 0), width: 7.0 }));
 
     let event = |id: &str| base.triggers.iter().find(|t| t.id.as_str() == id).unwrap();
