@@ -1,0 +1,15 @@
+[package]
+name = "storycraft-engine"
+description = "Runtime for StoryCraft courses: timelines, triggers, variables and states"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+storycraft-model.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

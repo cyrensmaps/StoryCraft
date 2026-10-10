@@ -1,0 +1,22 @@
+[package]
+name = "storycraft-model"
+description = "Document model and file format for StoryCraft projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zip = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+uuid.workspace = true
+
+[features]
+default = ["archive"]
+# Reading/writing `.storycraft` archives. Disabled for the WebAssembly player.
+archive = ["dep:zip"]

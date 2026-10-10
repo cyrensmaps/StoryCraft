@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = [
+    "crates/storycraft-model",
+    "crates/storycraft-engine",
+    "crates/storycraft-export",
+    "crates/storycraft-story",
+    "crates/storycraft-editor",
+    "crates/storycraft-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cyrensmaps/StoryCraft"
+rust-version = "1.85"
+
+[workspace.dependencies]
+storycraft-model = { path = "crates/storycraft-model", default-features = false }
+storycraft-engine = { path = "crates/storycraft-engine" }
+storycraft-export = { path = "crates/storycraft-export" }
+storycraft-story = { path = "crates/storycraft-story" }
+
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+eframe = "0.36"
+egui = "0.36"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+quick-xml = "0.42"
+rfd = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# Size-optimised profile used to build the WebAssembly player runtime.
+[profile.player]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

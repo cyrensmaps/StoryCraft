@@ -1,0 +1,14 @@
+[package]
+name = "storycraft-story"
+description = "Clean-room import of Articulate Storyline .story projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+storycraft-model = { workspace = true, features = ["archive"] }
+quick-xml.workspace = true
+thiserror.workspace = true
+zip.workspace = true

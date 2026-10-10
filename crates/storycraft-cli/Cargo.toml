@@ -1,0 +1,19 @@
+[package]
+name = "storycraft-cli"
+description = "Command-line tools for StoryCraft: publish, inspect and validate projects"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "storycraft-cli"
+path = "src/main.rs"
+
+[dependencies]
+storycraft-model = { workspace = true, features = ["archive"] }
+storycraft-export.workspace = true
+storycraft-story.workspace = true
+anyhow.workspace = true
+clap.workspace = true
