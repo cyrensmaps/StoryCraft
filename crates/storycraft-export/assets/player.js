@@ -98,6 +98,14 @@
 
   var nodes = new Map(); // object id -> { el, key, text, svgShape, img }
 
+  /** The address a web object loads: a URL, or a page in its unpacked folder. */
+  function webSource(kind) {
+    var source = kind.source;
+    if (source.type === "url") return source.url;
+    return "web/" + encodeURIComponent(source.asset) + "/" +
+      source.entry.split("/").map(encodeURIComponent).join("/");
+  }
+
   function createNode(o, key) {
     var el = document.createElement(o.interactive ? "button" : "div");
     el.className = "sc-obj";
@@ -119,6 +127,27 @@
       node.img.className = "sc-fill";
       node.img.draggable = false;
       el.appendChild(node.img);
+    }
+    if (o.kind.type === "web") {
+      var src = webSource(o.kind);
+      if (o.kind.display === "new_window") {
+        // Opens when the object appears; the link remains in case a popup
+        // blocker stops the automatic window.
+        node.web = document.createElement("a");
+        node.web.className = "sc-web-link";
+        node.web.target = "_blank";
+        node.web.rel = "noopener";
+        node.web.href = src;
+        node.web.textContent = "Open " + (o.alt_text || "web page") + " in a new window";
+        el.appendChild(node.web);
+        window.open(src, "_blank", "noopener");
+      } else {
+        node.web = document.createElement("iframe");
+        node.web.className = "sc-web";
+        node.web.setAttribute("allow", "fullscreen; autoplay; clipboard-write");
+        node.web.setAttribute("src", src);
+        el.appendChild(node.web);
+      }
     }
     node.text = document.createElement("div");
     node.text.className = "sc-text";
@@ -151,6 +180,12 @@
       s.background = css(o.fill);
       s.border = o.stroke ? o.stroke.width + "px solid " + css(o.stroke.color) : "none";
       s.borderRadius = o.kind.type === "shape" && o.kind.shape === "ellipse" ? "50%" : o.corner_radius + "px";
+    }
+
+    if (node.web && node.web.tagName === "IFRAME") {
+      var webSrc = webSource(o.kind);
+      if (node.web.getAttribute("src") !== webSrc) node.web.setAttribute("src", webSrc);
+      node.web.title = o.alt_text || "Web content";
     }
 
     if (node.img) {
@@ -193,7 +228,7 @@
     var previous = null;
     frame.objects.forEach(function (o) {
       seen.add(o.id);
-      var key = o.kind.type + ":" + (o.kind.shape || "") + ":" + o.interactive;
+      var key = o.kind.type + ":" + (o.kind.shape || o.kind.display || "") + ":" + o.interactive;
       var node = nodes.get(o.id);
       if (!node || node.key !== key) {
         if (node) node.el.remove();

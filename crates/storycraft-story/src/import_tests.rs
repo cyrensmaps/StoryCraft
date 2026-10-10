@@ -293,6 +293,45 @@ fn media_is_matched_by_checksum() {
 }
 
 #[test]
+fn imports_web_objects() {
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file("index.html", zip::write::SimpleFileOptions::default()).unwrap();
+    zip.write_all(b"<p>local</p>").unwrap();
+    let bundle = zip.finish().unwrap().into_inner();
+    let hash: String = <md5::Md5 as md5::Digest>::digest(&bundle).iter().map(|b| format!("{b:02x}")).collect();
+    let story = String::from_utf8(story_xml(
+        r#"<scene g="s1" name="" sceneType="scene"><sldIdLst><sldId>Rs1</sldId></sldIdLst></scene>"#,
+    ))
+    .unwrap()
+    .replace(
+        "<sceneLst>",
+        &format!(
+            r#"<mediaLst><mediaLst><media g="web-media" displayName="x.unknown"><md5Checksum><stream>{hash}</stream></md5Checksum></media></mediaLst></mediaLst><sceneLst>"#
+        ),
+    );
+    let slide = r#"<sld g="s" name="" layoutG="x"><tmProps min="5000"/><shapeLst>
+        <web g="w1" typeName="" name="Web Object" vidMode="sld"><loc l="10" t="10" r="710" b="530"/><url>https://example.com</url></web>
+        <web g="w2" typeName="" name="Web Object" vidMode="new"><loc l="0" t="0" r="10" b="10"/><url>https://example.org</url></web>
+        <web g="w3" typeName="" name="Web Object" vidMode="sld" assetG="web-media"><loc l="0" t="0" r="10" b="10"/><url>C:\folder\index.html</url></web>
+        </shapeLst></sld>"#;
+    let imported = package(story.as_bytes(), slide).file("story/media/R1.bin", &bundle).import();
+    let doc = &imported.document;
+    let objects = &doc.project.scenes[0].slides[0].base.objects;
+    assert_eq!(
+        objects[0].kind,
+        ObjectKind::Web { source: WebSource::Url { url: "https://example.com".into() }, display: WebDisplay::OnSlide }
+    );
+    assert_eq!(objects[0].frame, Rect::new(10.0, 10.0, 700.0, 520.0));
+    assert!(matches!(&objects[1].kind, ObjectKind::Web { display: WebDisplay::NewWindow, .. }));
+    let ObjectKind::Web { source: WebSource::Bundle { asset, entry }, .. } = &objects[2].kind else {
+        panic!("expected a bundled web object")
+    };
+    assert_eq!(entry, "index.html");
+    assert_eq!(doc.media[asset], bundle);
+    assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
+}
+
+#[test]
 fn unknown_things_become_warnings() {
     let slide = r#"<sld g="s" name="" layoutG="x"><shapeLst>
         <star5 g="star" typeName="" name="Star"><loc l="0" t="0" r="10" b="10"/></star5>

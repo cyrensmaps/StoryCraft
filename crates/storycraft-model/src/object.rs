@@ -100,6 +100,33 @@ pub enum ObjectKind {
     },
     /// A rectangle with button semantics for assistive technology.
     Button,
+    /// A web page shown in the slide (or in a new window).
+    Web {
+        source: WebSource,
+        #[serde(default)]
+        display: WebDisplay,
+    },
+}
+
+/// Where a web object's page comes from.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WebSource {
+    /// A page on the web.
+    Url { url: String },
+    /// A folder of web content packed into a ZIP asset, opened at `entry`
+    /// (a path inside the ZIP, e.g. `index.html`).
+    Bundle { asset: Id, entry: String },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WebDisplay {
+    /// Embedded in the slide, filling the object's frame.
+    #[default]
+    OnSlide,
+    /// Opened in a new browser window when the object appears.
+    NewWindow,
 }
 
 impl ObjectKind {
@@ -109,6 +136,7 @@ impl ObjectKind {
             ObjectKind::Shape { .. } => "Shape",
             ObjectKind::Image { .. } => "Image",
             ObjectKind::Button => "Button",
+            ObjectKind::Web { .. } => "Web object",
         }
     }
 }

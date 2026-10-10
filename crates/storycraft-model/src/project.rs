@@ -111,10 +111,21 @@ impl Project {
             for layer in slide.layers() {
                 let at = format!("slide {:?}, layer {:?}", slide.name, layer.name);
                 for object in &layer.objects {
-                    if let crate::ObjectKind::Image { asset } = &object.kind {
-                        if self.asset(asset).is_none() {
+                    match &object.kind {
+                        crate::ObjectKind::Image { asset } if self.asset(asset).is_none() => {
                             problems.push(format!("{at}: image {:?} uses missing asset {asset}", object.name));
                         }
+                        crate::ObjectKind::Web { source: crate::WebSource::Bundle { asset, .. }, .. }
+                            if self.asset(asset).is_none() =>
+                        {
+                            problems.push(format!("{at}: web object {:?} uses missing asset {asset}", object.name));
+                        }
+                        crate::ObjectKind::Web { source: crate::WebSource::Url { url }, .. }
+                            if url.trim().is_empty() =>
+                        {
+                            problems.push(format!("{at}: web object {:?} has no address", object.name));
+                        }
+                        _ => {}
                     }
                 }
                 for trigger in &layer.triggers {

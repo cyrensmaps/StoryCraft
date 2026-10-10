@@ -22,7 +22,7 @@ pub use geometry::{Color, Point, Rect, Size};
 pub use id::Id;
 pub use object::{
     HAlign, Object, ObjectKind, ObjectState, ShapeKind, StateOverrides, Stroke, Style, TextContent, Timing, VAlign,
-    state_names,
+    WebDisplay, WebSource, state_names,
 };
 pub use project::{
     Advance, Asset, Completion, FORMAT_VERSION, Layer, LmsSettings, PlayerSettings, Project, Scene, Slide,

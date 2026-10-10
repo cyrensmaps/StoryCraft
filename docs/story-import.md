@@ -8,7 +8,7 @@ Opening `.story` files is a core goal. The importer is built from sample project
 
 - scenes and slides (names, slide size, advance mode, timeline length)
 - layers (name, timeline length, and the options "hide other slide layers", "pause base layer", "prevent clicking on the base layer" and "hide when the timeline finishes")
-- text boxes, rectangles, rounded rectangles, ellipses, triangles, buttons and pictures, with position, fill and outline (including theme colours), text and alt text
+- text boxes, rectangles, rounded rectangles, ellipses, triangles, buttons, pictures and web objects (web addresses and local folders, shown in the slide or a new window), with position, fill and outline (including theme colours), text and alt text
 - text formatting: alignment, font (including the theme's fonts), size, bold, italic and colour (one style per text box)
 - object timing (start, duration, "show until end") and "initially hidden"
 - states, including built-in button states and colours defined relative to Normal

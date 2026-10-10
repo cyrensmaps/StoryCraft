@@ -10,7 +10,7 @@ Early development (v0.1). What works today:
 
 | Area | Status |
 |---|---|
-| Desktop editor (pure Rust, egui) | Scenes and slides, layers, text, shapes, buttons and pictures, move and resize, properties, undo/redo, copy/paste |
+| Desktop editor (pure Rust, egui) | Scenes and slides, layers, text, shapes, buttons, pictures and web objects, move and resize, properties, undo/redo, copy/paste |
 | Interactivity | Triggers (jump, show/hide layer, change state, set variable, timeline control, open URL, complete/exit), conditions with AND/OR, built-in Hover, Down, Visited, Selected, Disabled and Hidden states, custom states, `%Variable%` text |
 | Timeline | Per-layer timelines, timed entrances and exits, automatic slide advance |
 | Preview | In-app preview using the same engine as published courses |

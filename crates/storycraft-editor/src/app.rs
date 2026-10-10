@@ -55,6 +55,7 @@ enum Command {
     SaveAs,
     Publish(Target),
     Preview { from_current: bool },
+    PreviewInBrowser,
 }
 
 enum Dialog {
@@ -253,6 +254,57 @@ impl EditorApp {
             },
         ];
         self.insert_object(o);
+    }
+
+    pub fn insert_web_address(&mut self) {
+        let source = storycraft_model::WebSource::Url { url: "https://".into() };
+        self.insert_web(source, "Web Object".into());
+    }
+
+    /// Bundle a folder of web content (it needs an HTML page) into the project.
+    pub fn insert_web_folder(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder with an index.html").pick_folder() else {
+            return;
+        };
+        let bundle = match archive::bundle_folder(&dir) {
+            Ok(b) => b,
+            Err(e) => return self.error(format!("Could not read {}:\n\n{e}", dir.display())),
+        };
+        let paths: Vec<String> =
+            archive::bundle_files(&bundle).map(|f| f.into_iter().map(|(p, _)| p).collect()).unwrap_or_default();
+        let Some(entry) = archive::bundle_start_page(&paths, Some("index.html")) else {
+            return self.error(format!("{} has no web page (.html file) in it.", dir.display()));
+        };
+        let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "web".into());
+        self.begin_action();
+        let asset = self.doc.add_asset(&format!("{name}.zip"), "application/zip", bundle);
+        self.insert_web(storycraft_model::WebSource::Bundle { asset, entry }, name);
+    }
+
+    fn insert_web(&mut self, source: storycraft_model::WebSource, name: String) {
+        let size = self.doc.project.slide_size;
+        let frame = Rect::new(0.0, 0.0, (size.width * 0.8).round(), (size.height * 0.8).round());
+        let kind = ObjectKind::Web { source, display: storycraft_model::WebDisplay::OnSlide };
+        self.insert_object(Object::new(name, kind, frame));
+    }
+
+    /// Publish to a temporary folder and open it in the system browser, which
+    /// can show what the editor cannot (web objects, real fonts).
+    fn preview_in_browser(&mut self) {
+        let doc = prune_media(&self.doc);
+        let package = match storycraft_export::build(&doc, Target::Html) {
+            Ok(p) => p,
+            Err(e) => return self.error(format!("Preview failed:\n\n{e}")),
+        };
+        let dir = std::env::temp_dir().join("storycraft-preview").join(self.doc.project.id.as_str());
+        let _ = std::fs::remove_dir_all(&dir);
+        match package.write_dir(&dir) {
+            Ok(()) => {
+                open_in_system(&dir.join("index.html"));
+                self.status = "Opened the preview in your browser".into();
+            }
+            Err(e) => self.error(format!("Preview failed:\n\n{e}")),
+        }
     }
 
     pub fn insert_image(&mut self) {
@@ -456,6 +508,7 @@ impl EditorApp {
                     self.save_as();
                 }
                 Command::Publish(target) => self.publish(target),
+                Command::PreviewInBrowser => self.preview_in_browser(),
                 Command::Preview { from_current } => {
                     let from = from_current.then(|| self.slide().id.clone());
                     match Preview::new(&self.doc.project, from.as_ref()) {
@@ -722,6 +775,14 @@ impl EditorApp {
                 if ui.button("Preview from this slide").clicked() {
                     self.queue(&ctx, Command::Preview { from_current: true });
                 }
+                ui.separator();
+                if ui
+                    .button("Preview in browser")
+                    .on_hover_text("Shows web objects and fonts as learners see them")
+                    .clicked()
+                {
+                    self.queue(&ctx, Command::PreviewInBrowser);
+                }
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("About StoryCraft").clicked() {
@@ -747,6 +808,13 @@ impl EditorApp {
         ui.separator();
         if ui.button("Picture…").clicked() {
             self.insert_image();
+        }
+        ui.separator();
+        if ui.button("Web object (address)").clicked() {
+            self.insert_web_address();
+        }
+        if ui.button("Web object (folder)…").clicked() {
+            self.insert_web_folder();
         }
     }
 

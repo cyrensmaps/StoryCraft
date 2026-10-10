@@ -133,8 +133,70 @@ pub fn mime_for(name: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "mp3" => "audio/mpeg",
         "mp4" => "video/mp4",
+        "zip" => "application/zip",
         _ => "application/octet-stream",
     }
+}
+
+/// Pack a folder of web content (recursively) into a ZIP for a web object's
+/// bundle. Paths inside the ZIP are relative to `dir` and use `/`.
+pub fn bundle_folder(dir: &std::path::Path) -> Result<Vec<u8>, ArchiveError> {
+    fn walk(dir: &std::path::Path, prefix: &str, out: &mut Vec<(String, std::path::PathBuf)>) -> std::io::Result<()> {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = format!("{prefix}{name}");
+            if entry.file_type()?.is_dir() {
+                walk(&entry.path(), &format!("{path}/"), out)?;
+            } else {
+                out.push((path, entry.path()));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(dir, "", &mut files)?;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, path) in files {
+        zip.start_file(name, options)?;
+        zip.write_all(&std::fs::read(path)?)?;
+    }
+    Ok(zip.finish()?.into_inner())
+}
+
+/// The files of a web bundle as (relative path, bytes). Entries whose paths
+/// could escape the bundle's folder (`..`, absolute paths) are skipped.
+pub fn bundle_files(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, ArchiveError> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
+    let mut out = Vec::new();
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        if entry.is_dir() {
+            continue;
+        }
+        let Some(path) = entry.enclosed_name().map(|p| p.to_string_lossy().replace('\\', "/")) else { continue };
+        let mut data = Vec::with_capacity(entry.size() as usize);
+        entry.read_to_end(&mut data)?;
+        out.push((path, data));
+    }
+    Ok(out)
+}
+
+/// Choose a bundle's start page: `preferred` if the bundle has it, else
+/// `index.html` (at any depth, shallowest first), else the first HTML file.
+pub fn bundle_start_page(paths: &[String], preferred: Option<&str>) -> Option<String> {
+    let is_html = |p: &str| {
+        let p = p.to_ascii_lowercase();
+        p.ends_with(".html") || p.ends_with(".htm")
+    };
+    if let Some(p) = preferred.and_then(|want| paths.iter().find(|p| p.eq_ignore_ascii_case(want))) {
+        return Some(p.clone());
+    }
+    let mut html: Vec<&String> = paths.iter().filter(|p| is_html(p)).collect();
+    html.sort_by_key(|p| (p.matches('/').count(), !p.to_ascii_lowercase().ends_with("index.html"), p.to_string()));
+    html.first().map(|p| p.to_string())
 }
 
 #[cfg(test)]
@@ -152,6 +214,32 @@ mod tests {
         let back = Document::read(buf).unwrap();
         assert_eq!(back, doc);
         assert!(back.project.assets[0].file_name.ends_with(".png"));
+    }
+
+    #[test]
+    fn web_bundles_round_trip_and_stay_enclosed() {
+        let dir = std::env::temp_dir().join(format!("storycraft-bundle-{}", Id::new()));
+        std::fs::create_dir_all(dir.join("css")).unwrap();
+        std::fs::write(dir.join("index.html"), "<p>hi</p>").unwrap();
+        std::fs::write(dir.join("css/site.css"), "p{}").unwrap();
+        let bytes = bundle_folder(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        let files = bundle_files(&bytes).unwrap();
+        let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, vec!["css/site.css".to_string(), "index.html".to_string()]);
+        assert_eq!(bundle_start_page(&paths, None).as_deref(), Some("index.html"));
+
+        // A hostile bundle cannot place files outside its folder.
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("../evil.html", SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"x").unwrap();
+        zip.start_file("ok/page.htm", SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"y").unwrap();
+        let files = bundle_files(&zip.finish().unwrap().into_inner()).unwrap();
+        let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, vec!["ok/page.htm".to_string()]);
+        assert_eq!(bundle_start_page(&paths, Some("index.html")).as_deref(), Some("ok/page.htm"));
     }
 
     #[test]

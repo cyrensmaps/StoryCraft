@@ -113,6 +113,41 @@ pub fn draw_object(painter: &Painter, view: SlideView, o: &RenderObject, opacity
         painter.add(Shape::closed_line(points, Stroke::new(1.0, Color32::from_gray(120))));
     }
 
+    if let ObjectKind::Web { source, display } = &o.kind {
+        // The editor cannot render web pages; show what will load there.
+        let points = rotate(rounded_rect_points(rect, 0.0));
+        painter.add(Shape::convex_polygon(
+            points.clone(),
+            Color32::from_gray(235).gamma_multiply(opacity),
+            Stroke::NONE,
+        ));
+        painter.add(Shape::closed_line(points, Stroke::new(1.0, Color32::from_gray(140))));
+        let what = match source {
+            storycraft_model::WebSource::Url { url } => url.clone(),
+            storycraft_model::WebSource::Bundle { entry, .. } => format!("Local folder: {entry}"),
+        };
+        let mode = match display {
+            storycraft_model::WebDisplay::OnSlide => "Web object",
+            storycraft_model::WebDisplay::NewWindow => "Web object (opens in a new window)",
+        };
+        let size = (14.0 * view.scale).clamp(8.0, 18.0);
+        let clipped = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+        clipped.text(
+            rect.center() - vec2(0.0, size * 0.7),
+            egui::Align2::CENTER_CENTER,
+            mode,
+            FontId::proportional(size),
+            Color32::from_gray(60).gamma_multiply(opacity),
+        );
+        clipped.text(
+            rect.center() + vec2(0.0, size * 0.7),
+            egui::Align2::CENTER_CENTER,
+            what,
+            FontId::proportional(size * 0.85),
+            Color32::from_rgb(0x1D, 0x4E, 0xD8).gamma_multiply(opacity),
+        );
+    }
+
     if let Some(stroke) = o.stroke.filter(|s| s.width > 0.0) {
         // Strokes sit inside the frame, like CSS `box-sizing: border-box`.
         let width = stroke.width * view.scale;

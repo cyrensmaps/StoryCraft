@@ -32,16 +32,21 @@
 //! * Colours are `srgbClr@val` or `schemeClr@val`; scheme colours come from
 //!   the `clrLst` of the master that owns the slide's layout (`layoutG`).
 //! * Media files are matched by the MD5 checksum stored in `media/md5Checksum`.
+//! * Web objects are `<web>` with `url` and `vidMode` (`sld` in the slide,
+//!   `new` in a new window). A web object made from a local folder also has
+//!   `assetG`, pointing at a media entry that is a ZIP of the folder; `url`
+//!   then holds the original path of the start page.
 
 use std::collections::{BTreeSet, HashMap};
 use std::io::{Read, Seek};
 
 use md5::{Digest, Md5};
-use storycraft_model::archive::{Document, mime_for};
+use storycraft_model::archive::{Document, bundle_files, bundle_start_page, mime_for};
 use storycraft_model::{
     Action, Advance, Color, Comparison, Condition, ConditionClause, Event, HAlign, Id, Join, Layer, LayerTarget,
     Object, ObjectKind, ObjectState, Operand, Project, Rect, Scene, ShapeKind, Size, Slide, SlideTarget,
-    StateOverrides, Stroke, TextContent, Timing, Trigger, VAlign, Value, ValueKind, VarOp, Variable, state_names,
+    StateOverrides, Stroke, TextContent, Timing, Trigger, VAlign, Value, ValueKind, VarOp, Variable, WebDisplay,
+    WebSource, state_names,
 };
 
 use crate::dom::{self, Node};
@@ -305,6 +310,42 @@ impl Importer {
         Some(id)
     }
 
+    /// A `<web>` object: `url` is a web address, or, when `assetG` names a
+    /// bundled folder (a ZIP), the original path of its start page.
+    /// `vidMode="new"` opens it in a new window.
+    fn web_object(&mut self, node: &Node, name: &str) -> Option<ObjectKind> {
+        let url = node.child("url").map(|u| u.text.trim().to_owned()).unwrap_or_default();
+        let display = if node.a("vidMode") == "new" { WebDisplay::NewWindow } else { WebDisplay::OnSlide };
+        let source = match non_nil(node.a("assetG")) {
+            Some(media) => {
+                let Some((_, bytes)) = self.media.get(media.as_str()).cloned() else {
+                    self.warn(format!("web object {name:?} is missing its folder; skipped"));
+                    return None;
+                };
+                let paths: Vec<String> = match bundle_files(&bytes) {
+                    Ok(files) => files.into_iter().map(|(p, _)| p).collect(),
+                    Err(_) => {
+                        self.warn(format!("web object {name:?} has an unreadable folder; skipped"));
+                        return None;
+                    }
+                };
+                let wanted = url.rsplit(['\\', '/']).next().filter(|s| !s.is_empty());
+                let Some(entry) = bundle_start_page(&paths, wanted) else {
+                    self.warn(format!("web object {name:?} has no web page in its folder; skipped"));
+                    return None;
+                };
+                let asset = self.doc.add_asset("web object.zip", "application/zip", bytes);
+                WebSource::Bundle { asset, entry }
+            }
+            None if url.is_empty() => {
+                self.warn(format!("web object {name:?} has no address; skipped"));
+                return None;
+            }
+            None => WebSource::Url { url },
+        };
+        Some(ObjectKind::Web { source, display })
+    }
+
     // --- slides ----------------------------------------------------------
 
     fn slide(&mut self, sld: &Node, number: usize) -> Slide {
@@ -374,6 +415,7 @@ impl Importer {
             "oval" => ObjectKind::Shape { shape: ShapeKind::Ellipse },
             "triangle" => ObjectKind::Shape { shape: ShapeKind::Triangle },
             "btn" => ObjectKind::Button,
+            "web" => self.web_object(node, &name)?,
             "pic" => match self.asset_for(node.a("assetG")) {
                 Some(asset) => ObjectKind::Image { asset },
                 None => {

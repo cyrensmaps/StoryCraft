@@ -3,7 +3,7 @@
 use egui::{ComboBox, DragValue, Grid, Ui};
 use storycraft_model::{
     Advance, Color, Completion, HAlign, Object, ObjectKind, ObjectState, ShapeKind, Size, Stroke, TextContent, VAlign,
-    state_names,
+    WebDisplay, WebSource, state_names,
 };
 
 use crate::app::EditorApp;
@@ -41,6 +41,30 @@ fn object_properties(ui: &mut Ui, o: &mut Object, slide: Size, focus_text: bool)
                 ui.selectable_value(shape, s, s.label());
             }
         });
+    }
+    if let ObjectKind::Web { source, display } = &mut o.kind {
+        section(ui, "Web content");
+        match source {
+            WebSource::Url { url } => {
+                ui.horizontal(|ui| {
+                    ui.label("Address");
+                    ui.add(egui::TextEdit::singleline(url).hint_text("https://").desired_width(f32::INFINITY));
+                });
+            }
+            WebSource::Bundle { entry, .. } => {
+                ui.label(format!("Local folder, opening {entry}"));
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label("Show");
+            ui.selectable_value(display, WebDisplay::OnSlide, "On the slide");
+            ui.selectable_value(display, WebDisplay::NewWindow, "In a new window");
+        });
+        ui.label(
+            egui::RichText::new("Web pages show in published courses and in Preview > Preview in browser.")
+                .weak()
+                .small(),
+        );
     }
 
     section(ui, "Position and size");

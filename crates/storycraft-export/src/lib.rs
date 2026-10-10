@@ -15,6 +15,7 @@
 //! storycraft/engine.js     the WebAssembly engine, base64-encoded
 //! storycraft/course.js     the project as JSON
 //! media/…                  assets
+//! web/<asset id>/…          unpacked web object folders
 //! ```
 
 mod base64;
@@ -25,7 +26,10 @@ pub use manifests::activity_id;
 use std::io::{Seek, Write};
 use std::path::Path;
 
-use storycraft_model::archive::Document;
+use std::collections::HashSet;
+
+use storycraft_model::archive::{self, Document};
+use storycraft_model::{Id, ObjectKind, WebSource};
 
 const PLAYER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storycraft_player.wasm"));
 const PLAYER_JS: &str = include_str!("../assets/player.js");
@@ -83,6 +87,8 @@ pub enum ExportError {
     NoSlides,
     #[error("asset {0:?} has no data")]
     MissingMedia(String),
+    #[error("the web object folder {0:?} could not be read: {1}")]
+    BadWebBundle(String, String),
     #[error("could not serialise the course: {0}")]
     Json(#[from] serde_json::Error),
     #[error("I/O error: {0}")]
@@ -128,9 +134,27 @@ pub fn build(doc: &Document, target: Target) -> Result<Package, ExportError> {
     );
     files.push(("storycraft/course.js".to_owned(), course_js.into_bytes()));
 
+    // Web object folders are unpacked so the browser can load them; other
+    // assets are copied as they are.
+    let bundles: HashSet<&Id> = project
+        .slides()
+        .flat_map(|(_, s)| s.layers().flat_map(|l| l.objects.iter()))
+        .filter_map(|o| match &o.kind {
+            ObjectKind::Web { source: WebSource::Bundle { asset, .. }, .. } => Some(asset),
+            _ => None,
+        })
+        .collect();
     for asset in &project.assets {
         let bytes = doc.media.get(&asset.id).ok_or_else(|| ExportError::MissingMedia(asset.name.clone()))?;
-        files.push((format!("media/{}", asset.file_name), bytes.clone()));
+        if bundles.contains(&asset.id) {
+            let entries = archive::bundle_files(bytes)
+                .map_err(|e| ExportError::BadWebBundle(asset.name.clone(), e.to_string()))?;
+            for (path, data) in entries {
+                files.push((format!("web/{}/{path}", asset.id), data));
+            }
+        } else {
+            files.push((format!("media/{}", asset.file_name), bytes.clone()));
+        }
     }
 
     let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
@@ -273,6 +297,34 @@ mod tests {
         let xml = String::from_utf8(xml.clone()).unwrap();
         assert!(xml.contains("<schemaversion>2004 4th Edition</schemaversion>"));
         assert!(xml.contains(r#"adlcp:scormType="sco""#));
+    }
+
+    #[test]
+    fn web_bundles_are_unpacked() {
+        let mut doc = Document::new(sample_project());
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("index.html", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"<p>hello</p>").unwrap();
+        let bundle = zip.finish().unwrap().into_inner();
+        let asset = doc.add_asset("site.zip", "application/zip", bundle);
+        let mut web = storycraft_model::Object::new(
+            "Web",
+            ObjectKind::Web {
+                source: WebSource::Bundle { asset: asset.clone(), entry: "index.html".into() },
+                display: Default::default(),
+            },
+            storycraft_model::Rect::new(0.0, 0.0, 100.0, 100.0),
+        );
+        web.alt_text = "A web page".into();
+        doc.project.scenes[0].slides[0].base.objects.push(web);
+
+        let pkg = build(&doc, Target::Html).unwrap();
+        let (_, page) = pkg.files.iter().find(|(p, _)| p == &format!("web/{asset}/index.html")).unwrap();
+        assert_eq!(page, b"<p>hello</p>");
+        assert!(
+            !paths(&pkg).iter().any(|p| p.starts_with("media/") && p.ends_with(".zip")),
+            "the ZIP itself is not shipped"
+        );
     }
 
     #[test]
