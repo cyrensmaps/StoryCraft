@@ -576,10 +576,10 @@ impl EditorApp {
                 let index = dir.join("index.html");
                 (dir, Some(index))
             }
-            Target::Scorm12 => {
+            _ => {
                 let Some(mut file) = rfd::FileDialog::new()
-                    .add_filter("SCORM package", &["zip"])
-                    .set_file_name(format!("{stem}-scorm12.zip"))
+                    .add_filter("LMS package", &["zip"])
+                    .set_file_name(format!("{stem}-{}.zip", target.id()))
                     .save_file()
                 else {
                     return;
@@ -792,9 +792,13 @@ impl EditorApp {
                 self.queue(&ctx, Command::Preview { from_current: true });
             }
             ui.separator();
-            if ui.button("📦 Publish").clicked() {
-                self.queue(&ctx, Command::Publish(Target::Scorm12));
-            }
+            ui.menu_button("📦 Publish", |ui| {
+                for target in Target::ALL {
+                    if ui.button(target.label()).clicked() {
+                        self.queue(&ctx, Command::Publish(target));
+                    }
+                }
+            });
         });
     }
 

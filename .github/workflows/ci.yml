@@ -45,7 +45,11 @@ jobs:
         with:
           node-version: 22
       - run: cargo run -p storycraft-cli -- sample demo.storycraft
-      - run: cargo run -p storycraft-cli -- publish demo.storycraft -f scorm12 -o out/demo
-      - run: node tools/browser-smoke.mjs out/demo
+      - name: Play the sample in each LMS format
         env:
           BROWSER: /usr/bin/google-chrome
+        run: |
+          for format in scorm12 scorm2004 xapi cmi5; do
+            cargo run -q -p storycraft-cli -- publish demo.storycraft -f $format -o out/$format
+            node tools/browser-smoke.mjs out/$format
+          done

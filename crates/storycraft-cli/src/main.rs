@@ -46,6 +46,9 @@ enum Command {
 enum Format {
     Html,
     Scorm12,
+    Scorm2004,
+    Xapi,
+    Cmi5,
 }
 
 impl From<Format> for Target {
@@ -53,6 +56,9 @@ impl From<Format> for Target {
         match f {
             Format::Html => Target::Html,
             Format::Scorm12 => Target::Scorm12,
+            Format::Scorm2004 => Target::Scorm2004,
+            Format::Xapi => Target::Xapi,
+            Format::Cmi5 => Target::Cmi5,
         }
     }
 }

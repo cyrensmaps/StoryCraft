@@ -14,10 +14,10 @@ Early development (v0.1). What works today:
 | Interactivity | Triggers (jump, show/hide layer, change state, set variable, timeline control, open URL, complete/exit), conditions with AND/OR, built-in Hover, Down, Visited, Selected, Disabled and Hidden states, custom states, `%Variable%` text |
 | Timeline | Per-layer timelines, timed entrances and exits, automatic slide advance |
 | Preview | In-app preview using the same engine as published courses |
-| Publishing | HTML5 (runs from a web server or straight from disk) and SCORM 1.2 (completion, bookmarking, resume) |
+| Publishing | HTML5 (runs from a web server or straight from disk), SCORM 1.2, SCORM 2004 (4th edition), xAPI (Tin Can) and cmi5, all with completion tracking, bookmarking and resume |
 | Storyline `.story` import | **In progress.** The inspection tooling is done; the format mapping is being built from sample files. See [docs/story-import.md](docs/story-import.md) |
 
-Planned next: quizzes and result slides, audio and video, motion paths and animations, slide masters, SCORM 2004, xAPI and cmi5, and rich text.
+Planned next: quizzes and result slides, audio and video, motion paths and animations, slide masters, and rich text.
 
 ## Building
 
@@ -40,7 +40,7 @@ cargo run --release -p storycraft-editor -- my.storycraft
 ```sh
 cargo run -p storycraft-cli -- sample demo.storycraft                         # write a demo course
 cargo run -p storycraft-cli -- validate demo.storycraft                       # check for broken references
-cargo run -p storycraft-cli -- publish demo.storycraft -f scorm12 -o demo.zip # SCORM 1.2 package
+cargo run -p storycraft-cli -- publish demo.storycraft -f scorm12 -o demo.zip # SCORM 1.2 (also scorm2004, xapi, cmi5)
 cargo run -p storycraft-cli -- publish demo.storycraft -f html -o site/       # website
 cargo run -p storycraft-cli -- inspect course.story                           # describe a .story file's structure
 ```
@@ -52,7 +52,7 @@ crates/
   storycraft-model    the document model and the .storycraft file format (a ZIP of JSON and media)
   storycraft-engine   the runtime: timelines, triggers, conditions, variables, states
   storycraft-player   the engine compiled to WebAssembly for published courses
-  storycraft-export   HTML5 and SCORM 1.2 publishing (embeds the player)
+  storycraft-export   HTML5, SCORM, xAPI and cmi5 publishing (embeds the player)
   storycraft-story    clean-room import of Storyline .story files
   storycraft-editor   the desktop app
   storycraft-cli      command-line tools
@@ -67,7 +67,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 ```
 
-`tools/browser-smoke.mjs` plays a published copy of the sample course in a headless Chromium-based browser and checks layers, variables, timing and SCORM reporting against a fake LMS:
+`tools/browser-smoke.mjs` plays a published copy of the sample course in a headless Chromium-based browser and checks layers, variables, timing and LMS reporting against a fake LMS or LRS for the package's format:
 
 ```sh
 cargo run -p storycraft-cli -- sample demo.storycraft

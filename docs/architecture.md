@@ -36,13 +36,18 @@ A `cdylib` wrapping the engine for `wasm32-unknown-unknown`, with a tiny C ABI (
 
 ```
 index.html
-storycraft/player.js   DOM renderer, input, SCORM 1.2 bridge
+storycraft/player.js   DOM renderer and input
+storycraft/lms.js      LMS adapters: SCORM 1.2, SCORM 2004, xAPI, cmi5
 storycraft/player.css
 storycraft/engine.js   the wasm, base64-encoded (loads from file:// too)
 storycraft/course.js   the project JSON
 media/...
-imsmanifest.xml        SCORM only
+imsmanifest.xml        SCORM 1.2 / 2004
+tincan.xml             xAPI
+cmi5.xml               cmi5
 ```
+
+`lms.js` gives the player one interface for every format (saved progress, save, slide viewed, complete, finish). SCORM adapters talk to the LMS's JavaScript API; the xAPI adapter reads the Tin Can launch parameters and sends statements (initialized, experienced per slide, completed, terminated) and progress (State API) to the LRS; the cmi5 adapter follows the cmi5 launch sequence (fetch the auth token, read `LMS.LaunchData`, send cmi5-defined statements using the context template, return to `returnURL`).
 
 `player.js` keeps one DOM element per object (keyed by id, so focus survives updates), renders interactive objects as `<button>`s for keyboard and screen-reader users, and forwards pointer events in slide coordinates to the engine, which does all hit testing.
 

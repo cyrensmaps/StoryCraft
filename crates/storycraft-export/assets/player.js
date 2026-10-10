@@ -10,7 +10,6 @@
   var course = window.STORYCRAFT_COURSE;
   var target = window.STORYCRAFT_TARGET || "html";
   var SVG_NS = "http://www.w3.org/2000/svg";
-  var SUSPEND_LIMIT = 4096; // SCORM 1.2 cmi.suspend_data maximum
 
   var viewport = document.getElementById("sc-viewport");
   var stage = document.getElementById("sc-stage");
@@ -61,92 +60,28 @@
     return decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.sc_out_ptr(), len));
   }
 
-  // --- LMS (SCORM 1.2) -------------------------------------------------------
+  // --- LMS -------------------------------------------------------------------
 
-  function findApi(win) {
-    for (var tries = 0; win && tries < 50; tries++) {
-      try {
-        if (win.API) return win.API;
-      } catch (e) {
-        return null; // cross-origin frame
-      }
-      if (win.parent === win) break;
-      win = win.parent;
-    }
-    return null;
-  }
+  var slideNames = {};
+  (course.scenes || []).forEach(function (scene) {
+    scene.slides.forEach(function (slide) {
+      slideNames[slide.id] = slide.name;
+    });
+  });
 
-  function timespan(ms) {
-    var total = ms / 1000;
-    var h = Math.floor(total / 3600);
-    var m = Math.floor((total % 3600) / 60);
-    var s = total % 60;
-    function pad(n, w) {
-      var str = String(n);
-      while (str.length < w) str = "0" + str;
-      return str;
-    }
-    return pad(Math.min(h, 9999), 4) + ":" + pad(m, 2) + ":" + pad(s.toFixed(2), 5);
-  }
-
-  /** Shrink saved progress until it fits the SCORM 1.2 limit. */
-  function fitSuspendData(json) {
-    if (json.length <= SUSPEND_LIMIT) return json;
-    var data = JSON.parse(json);
-    var drops = ["states", "visited", "variables"];
-    for (var i = 0; i < drops.length; i++) {
-      data[drops[i]] = [];
-      var out = JSON.stringify(data);
-      if (out.length <= SUSPEND_LIMIT) return out;
-    }
-    return "";
-  }
-
-  function connectScorm12() {
-    var api = findApi(window) || (window.opener && findApi(window.opener));
-    if (!api || String(api.LMSInitialize("")) !== "true") return null;
-    var startedAt = Date.now();
-    var finished = false;
-    var get = function (key) {
-      return String(api.LMSGetValue(key) || "");
-    };
-    var set = function (key, value) {
-      api.LMSSetValue(key, String(value));
-    };
-    var status = get("cmi.core.lesson_status");
-    var completed = status === "completed" || status === "passed";
-    if (status === "" || status === "not attempted") set("cmi.core.lesson_status", "incomplete");
-    api.LMSCommit("");
-
-    return {
-      savedProgress: function () {
-        return get("cmi.suspend_data");
-      },
-      save: function (snapshotJson, location) {
-        if (finished) return;
-        if (location) set("cmi.core.lesson_location", location);
-        set("cmi.suspend_data", fitSuspendData(snapshotJson));
-        api.LMSCommit("");
-      },
-      complete: function () {
-        if (finished || completed) return;
-        completed = true;
-        set("cmi.core.lesson_status", "completed");
-        api.LMSCommit("");
-      },
-      finish: function () {
-        if (finished) return;
-        finished = true;
-        set("cmi.core.exit", completed ? "" : "suspend");
-        set("cmi.core.session_time", timespan(Date.now() - startedAt));
-        api.LMSCommit("");
-        api.LMSFinish("");
-      }
-    };
+  function snapshot() {
+    return readOut(wasm.sc_snapshot());
   }
 
   function saveProgress(location) {
-    if (lms) lms.save(readOut(wasm.sc_snapshot()), location);
+    if (lms) lms.save(snapshot(), location);
+  }
+
+  var sessionFinished = false;
+  function finishSession() {
+    if (sessionFinished) return;
+    sessionFinished = true;
+    if (lms) lms.finish(snapshot());
   }
 
   // --- Rendering -------------------------------------------------------------
@@ -307,10 +242,10 @@
         break;
       case "slide_changed":
         saveProgress(effect.value);
+        if (lms) lms.slideViewed(effect.value, slideNames[effect.value] || "");
         break;
       case "exit":
-        saveProgress(null);
-        if (lms) lms.finish();
+        finishSession();
         stopped = true;
         showMessage("You have left the course. You can close this window.");
         try {
@@ -392,10 +327,7 @@
       refresh();
     });
     window.addEventListener("resize", layout);
-    window.addEventListener("pagehide", function () {
-      saveProgress(null);
-      if (lms) lms.finish();
-    });
+    window.addEventListener("pagehide", finishSession);
   }
 
   function start() {
@@ -405,12 +337,11 @@
       if (callWithString("sc_init", JSON.stringify(course)) !== 0) {
         throw new Error(readOut(wasm.sc_out_len()) || "course failed to load");
       }
-      if (target === "scorm12") {
-        lms = connectScorm12();
-        if (!lms) console.warn("StoryCraft: no SCORM 1.2 LMS found; progress will not be tracked.");
-        var saved = lms && lms.savedProgress();
-        if (saved) callWithString("sc_restore", saved);
-      }
+      return window.StoryCraftLms.connect(target, { activityId: window.STORYCRAFT_ACTIVITY_ID });
+    }).then(function (connected) {
+      lms = connected;
+      if (!lms && target !== "html") console.warn("StoryCraft: no LMS found; progress will not be tracked.");
+      if (lms && lms.saved) callWithString("sc_restore", lms.saved);
       nav.hidden = !(course.player && course.player.show_nav_buttons);
       document.body.style.background = css(course.player && course.player.backdrop);
       layout();

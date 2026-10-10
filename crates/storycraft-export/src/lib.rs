@@ -6,8 +6,11 @@
 //!
 //! ```text
 //! index.html
-//! imsmanifest.xml          (SCORM only)
-//! storycraft/player.js     DOM renderer, input and LMS bridge
+//! imsmanifest.xml          (SCORM 1.2 and 2004)
+//! tincan.xml               (xAPI)
+//! cmi5.xml                 (cmi5)
+//! storycraft/player.js     DOM renderer and input
+//! storycraft/lms.js        SCORM, xAPI and cmi5 adapters
 //! storycraft/player.css
 //! storycraft/engine.js     the WebAssembly engine, base64-encoded
 //! storycraft/course.js     the project as JSON
@@ -15,7 +18,9 @@
 //! ```
 
 mod base64;
-mod scorm12;
+mod manifests;
+
+pub use manifests::activity_id;
 
 use std::io::{Seek, Write};
 use std::path::Path;
@@ -24,6 +29,7 @@ use storycraft_model::archive::Document;
 
 const PLAYER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/storycraft_player.wasm"));
 const PLAYER_JS: &str = include_str!("../assets/player.js");
+const LMS_JS: &str = include_str!("../assets/lms.js");
 const PLAYER_CSS: &str = include_str!("../assets/player.css");
 const INDEX_HTML: &str = include_str!("../assets/index.html");
 
@@ -33,22 +39,35 @@ pub enum Target {
     Html,
     /// A SCORM 1.2 package with completion, bookmarking and resume.
     Scorm12,
+    /// A SCORM 2004 (4th edition) package with completion, bookmarking and resume.
+    Scorm2004,
+    /// An xAPI (Tin Can) package that reports to a learning record store.
+    Xapi,
+    /// A cmi5 package (xAPI with LMS launch rules).
+    Cmi5,
 }
 
 impl Target {
-    pub const ALL: [Target; 2] = [Target::Html, Target::Scorm12];
+    pub const ALL: [Target; 5] = [Target::Html, Target::Scorm12, Target::Scorm2004, Target::Xapi, Target::Cmi5];
 
     pub fn label(&self) -> &'static str {
         match self {
             Target::Html => "Web (HTML5)",
             Target::Scorm12 => "LMS (SCORM 1.2)",
+            Target::Scorm2004 => "LMS (SCORM 2004)",
+            Target::Xapi => "LRS (xAPI / Tin Can)",
+            Target::Cmi5 => "LMS (cmi5)",
         }
     }
 
-    fn id(&self) -> &'static str {
+    /// Short name used in file names and by the player.
+    pub fn id(&self) -> &'static str {
         match self {
             Target::Html => "html",
             Target::Scorm12 => "scorm12",
+            Target::Scorm2004 => "scorm2004",
+            Target::Xapi => "xapi",
+            Target::Cmi5 => "cmi5",
         }
     }
 }
@@ -95,14 +114,16 @@ pub fn build(doc: &Document, target: Target) -> Result<Package, ExportError> {
     let index = INDEX_HTML.replace("{{TITLE}}", &title).replace("{{VERSION}}", env!("CARGO_PKG_VERSION"));
     files.push(("index.html".to_owned(), index.into_bytes()));
     files.push(("storycraft/player.js".to_owned(), PLAYER_JS.as_bytes().to_vec()));
+    files.push(("storycraft/lms.js".to_owned(), LMS_JS.as_bytes().to_vec()));
     files.push(("storycraft/player.css".to_owned(), PLAYER_CSS.as_bytes().to_vec()));
 
     let engine_js = format!("window.STORYCRAFT_WASM = \"{}\";\n", base64::encode(PLAYER_WASM));
     files.push(("storycraft/engine.js".to_owned(), engine_js.into_bytes()));
 
     let course_js = format!(
-        "window.STORYCRAFT_TARGET = \"{}\";\nwindow.STORYCRAFT_COURSE = {};\n",
-        target.id(),
+        "window.STORYCRAFT_TARGET = {};\nwindow.STORYCRAFT_ACTIVITY_ID = {};\nwindow.STORYCRAFT_COURSE = {};\n",
+        serde_json::to_string(target.id())?,
+        serde_json::to_string(&activity_id(project))?,
         serde_json::to_string(project)?
     );
     files.push(("storycraft/course.js".to_owned(), course_js.into_bytes()));
@@ -112,10 +133,16 @@ pub fn build(doc: &Document, target: Target) -> Result<Package, ExportError> {
         files.push((format!("media/{}", asset.file_name), bytes.clone()));
     }
 
-    if target == Target::Scorm12 {
-        let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
-        let manifest = scorm12::manifest(project, &paths);
-        files.push(("imsmanifest.xml".to_owned(), manifest.into_bytes()));
+    let paths: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+    let manifest = match target {
+        Target::Html => None,
+        Target::Scorm12 => Some(("imsmanifest.xml", manifests::scorm12(project, &paths))),
+        Target::Scorm2004 => Some(("imsmanifest.xml", manifests::scorm2004(project, &paths))),
+        Target::Xapi => Some(("tincan.xml", manifests::tincan(project))),
+        Target::Cmi5 => Some(("cmi5.xml", manifests::cmi5(project))),
+    };
+    if let Some((name, xml)) = manifest {
+        files.push((name.to_owned(), xml.into_bytes()));
     }
 
     Ok(Package { files, warnings })
@@ -217,6 +244,35 @@ mod tests {
         assert!(manifest.contains("<schemaversion>1.2</schemaversion>"));
         assert!(manifest.contains(r#"href="storycraft/engine.js""#));
         assert!(manifest.contains(r#"adlcp:scormtype="sco""#));
+    }
+
+    #[test]
+    fn each_lms_format_has_its_descriptor() {
+        let doc = Document::new(sample_project());
+        let expected = [
+            (Target::Html, None),
+            (Target::Scorm12, Some("imsmanifest.xml")),
+            (Target::Scorm2004, Some("imsmanifest.xml")),
+            (Target::Xapi, Some("tincan.xml")),
+            (Target::Cmi5, Some("cmi5.xml")),
+        ];
+        for (target, descriptor) in expected {
+            let pkg = build(&doc, target).unwrap();
+            let paths = paths(&pkg);
+            assert!(paths.contains(&"storycraft/lms.js"));
+            for name in ["imsmanifest.xml", "tincan.xml", "cmi5.xml"] {
+                assert_eq!(paths.contains(&name), descriptor == Some(name), "{target:?} / {name}");
+            }
+            let course = pkg.files.iter().find(|(p, _)| p == "storycraft/course.js").unwrap();
+            let course = String::from_utf8(course.1.clone()).unwrap();
+            assert!(course.contains(&format!("window.STORYCRAFT_TARGET = \"{}\"", target.id())));
+            assert!(course.contains("window.STORYCRAFT_ACTIVITY_ID = \"urn:storycraft:course:"));
+        }
+        let manifest = build(&doc, Target::Scorm2004).unwrap();
+        let (_, xml) = manifest.files.iter().find(|(p, _)| p == "imsmanifest.xml").unwrap();
+        let xml = String::from_utf8(xml.clone()).unwrap();
+        assert!(xml.contains("<schemaversion>2004 4th Edition</schemaversion>"));
+        assert!(xml.contains(r#"adlcp:scormType="sco""#));
     }
 
     #[test]
