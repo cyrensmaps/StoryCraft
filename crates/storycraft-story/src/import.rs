@@ -31,7 +31,7 @@ use storycraft_model::archive::{Document, mime_for};
 use storycraft_model::{
     Action, Advance, Color, Comparison, Condition, ConditionClause, Event, HAlign, Id, Join, Layer, LayerTarget,
     Object, ObjectKind, ObjectState, Operand, Project, Rect, Scene, ShapeKind, Size, Slide, SlideTarget,
-    StateOverrides, TextContent, Timing, Trigger, VAlign, Value, ValueKind, VarOp, Variable, state_names,
+    StateOverrides, Stroke, TextContent, Timing, Trigger, VAlign, Value, ValueKind, VarOp, Variable, state_names,
 };
 
 use crate::dom::{self, Node};
@@ -287,6 +287,12 @@ impl Importer {
             let name = non_empty(layer.a("name")).unwrap_or_else(|| "Layer".to_owned());
             let mut l = self.layer(layer, &name, &palette, false);
             l.pause_base_timeline = layer.a("pause") == "true";
+            if layer.a("modal") == "true" {
+                self.warn(format!("layer {name:?}: \"prevent clicking on the base layer\" is not supported yet"));
+            }
+            if layer.a("hideEnd") == "true" {
+                self.warn(format!("layer {name:?}: \"hide when the timeline finishes\" is not supported yet"));
+            }
             slide.layers.push(l);
         }
         slide
@@ -358,6 +364,7 @@ impl Importer {
             .and_then(|s| s.path(&["shapeLst"]))
             .and_then(|l| l.children.first());
         object.style.fill = self.fill(node, palette, None).or_else(|| self.fill(normal_look?, palette, None));
+        object.style.stroke = stroke(node, palette).or_else(|| stroke(normal_look?, palette));
         object.text = match (self.text(node, palette, &object.kind), normal_look) {
             (Some(mut t), Some(look)) => {
                 if let Some(c) = look.path(&["bG", "foreClr"]).and_then(|c| color(c, palette, None)) {
@@ -400,7 +407,7 @@ impl Importer {
 
     fn text(&mut self, node: &Node, palette: &Palette, kind: &ObjectKind) -> Option<TextContent> {
         let raw = node.child("text").map(|t| t.text.as_str()).unwrap_or("");
-        let mut text = if raw.trim().is_empty() { String::new() } else { self.rich_text(raw) };
+        let (mut text, style) = if raw.trim().is_empty() { Default::default() } else { self.rich_text(raw) };
         if text.is_empty() {
             text = node.child("plain").map(|p| p.text.clone()).unwrap_or_default();
         }
@@ -418,23 +425,49 @@ impl Importer {
             content.align = HAlign::Left;
             content.valign = VAlign::Top;
         }
+        style.apply(&mut content);
         Some(content)
     }
 
     /// Flatten Storyline's embedded text document into plain text, one line
-    /// per block.
-    fn rich_text(&mut self, raw: &str) -> String {
+    /// per block, plus the formatting of its first styled block and span.
+    /// StoryCraft has one style per text box, so mixed formatting is
+    /// simplified (and noted).
+    fn rich_text(&mut self, raw: &str) -> (String, TextStyle) {
         let Ok(doc) = dom::parse(raw.as_bytes()) else {
             self.warn("some text could not be read; using its plain-text copy");
-            return String::new();
+            return Default::default();
         };
-        let blocks: Vec<String> = doc
-            .path(&["Content"])
-            .into_iter()
-            .flat_map(|c| c.children("Block"))
-            .map(|b| b.children("Span").map(|s| s.a("Text")).collect())
-            .collect();
-        blocks.join("\n")
+        let blocks: Vec<&Node> = doc.path(&["Content"]).into_iter().flat_map(|c| c.children("Block")).collect();
+        let lines: Vec<String> = blocks.iter().map(|b| b.children("Span").map(|s| s.a("Text")).collect()).collect();
+
+        let mut style = TextStyle::default();
+        let block_styles: Vec<&Node> = blocks.iter().filter_map(|b| b.child("Style")).collect();
+        let spans: Vec<&Node> = blocks.iter().flat_map(|b| b.children("Span")).collect();
+        let span_styles: Vec<&Node> = spans.iter().filter_map(|s| s.child("Style")).collect();
+        if let Some(first) = block_styles.first() {
+            style.align = match first.a("Justification") {
+                "Left" | "Justify" => Some(HAlign::Left),
+                "Center" => Some(HAlign::Center),
+                "Right" => Some(HAlign::Right),
+                _ => None,
+            };
+        }
+        if let Some(first) = span_styles.first() {
+            let flag = |name: &str| first.attr(name).map(|v| v.eq_ignore_ascii_case("true"));
+            style.bold = flag("FontIsBold");
+            style.italic = flag("FontIsItalic");
+            style.color = first.attr("ForegroundColor").and_then(|c| c.parse().ok());
+            // Not seen in samples yet; read if present.
+            style.size = first.attr_f32("Size").or_else(|| first.attr_f32("FontSize")).filter(|s| *s > 0.0);
+            style.family = first.attr("FontFamilyName").or_else(|| first.attr("FontFamily")).and_then(non_empty);
+        }
+        let distinct = |nodes: &[&Node]| nodes.iter().map(|n| n.attrs.clone()).collect::<BTreeSet<_>>().len();
+        let partly_styled = !span_styles.is_empty() && span_styles.len() < spans.len();
+        if distinct(&span_styles) > 1 || distinct(&block_styles) > 1 || partly_styled {
+            self.warn("text with mixed formatting was simplified to one style per text box");
+        }
+        (lines.join("\n"), style)
     }
 
     fn states(&mut self, node: &Node, object: &Object, palette: &Palette) -> Vec<ObjectState> {
@@ -450,6 +483,10 @@ impl Importer {
                 let fill = self.fill(look, palette, object.style.fill);
                 if fill.is_some() && fill != object.style.fill {
                     overrides.fill = fill;
+                }
+                let line = stroke(look, palette).map(|s| s.color);
+                if line.is_some() && line != object.style.stroke.map(|s| s.color) {
+                    overrides.stroke_color = line;
                 }
                 let text = self.text(look, palette, &object.kind);
                 if let Some(t) = &text {
@@ -488,6 +525,15 @@ impl Importer {
             ("OnRollOut", Some(o)) => Event::HoverEnd { object: o.clone() },
             ("OnStart", _) => Event::TimelineStarts,
             ("OnEnd" | "OnComplete" | "OnTimelineEnd", _) => Event::TimelineEnds,
+            ("OnVariableValueChange", _) => {
+                match data.child("other").and_then(|o| o.attr("varChangeG")).and_then(non_nil) {
+                    Some(variable) => Event::VariableChanges { variable },
+                    None => {
+                        self.warn("a \"variable changes\" trigger has no variable; it was skipped");
+                        return None;
+                    }
+                }
+            }
             ("OnKeyPress", _) => {
                 Event::KeyPressed { key: data.child("keyPress").map(|k| k.a("keys").to_owned()).unwrap_or_default() }
             }
@@ -519,7 +565,7 @@ impl Importer {
                 target: match sub {
                     "next" => SlideTarget::Next,
                     "prev" => SlideTarget::Previous,
-                    _ => match data.child("slide").and_then(|s| s.attr("g").or(s.attr("slideG"))).and_then(non_nil) {
+                    _ => match data.child("slide").and_then(|s| s.attr("jumpG")).and_then(non_nil) {
                         Some(id) => SlideTarget::Slide(id),
                         None => {
                             self.warn("a \"jump to slide\" target could not be read; it jumps to the next slide");
@@ -629,11 +675,56 @@ impl Importer {
     }
 }
 
+/// The object's outline: `bG/solidLine/clr`, with its width in `lineStyle@w`.
+fn stroke(node: &Node, palette: &Palette) -> Option<Stroke> {
+    let bg = node.child("bG")?;
+    if bg.child("noLine").is_some() {
+        return None;
+    }
+    let color = color(bg.path(&["solidLine", "clr"])?, palette, None)?;
+    let width = bg.child("lineStyle").and_then(|l| l.attr_f32("w")).unwrap_or(1.0);
+    (width > 0.0).then_some(Stroke { color, width })
+}
+
 fn timing(node: &Node) -> Timing {
     let Some(ctx) = node.path(&["tmCtxLst"]).and_then(|l| l.children.first()) else { return Timing::default() };
     let start = ctx.attr_f32("start").unwrap_or(0.0).max(0.0) as u32;
     let duration = (ctx.a("untilEnd") != "true").then(|| ctx.attr_f32("dur").unwrap_or(0.0).max(0.0) as u32);
     Timing { start_ms: start, duration_ms: duration.filter(|d| *d > 0) }
+}
+
+/// Formatting read from a text document; `None` keeps the default.
+#[derive(Default)]
+struct TextStyle {
+    align: Option<HAlign>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    color: Option<Color>,
+    size: Option<f32>,
+    family: Option<String>,
+}
+
+impl TextStyle {
+    fn apply(self, t: &mut TextContent) {
+        if let Some(a) = self.align {
+            t.align = a;
+        }
+        if let Some(b) = self.bold {
+            t.bold = b;
+        }
+        if let Some(i) = self.italic {
+            t.italic = i;
+        }
+        if let Some(c) = self.color {
+            t.color = c;
+        }
+        if let Some(size) = self.size {
+            t.font_size = size;
+        }
+        if let Some(f) = self.family {
+            t.font_family = f;
+        }
+    }
 }
 
 fn literal(number: &str, boolean: &str, text: &str, kind: ValueKind) -> Value {

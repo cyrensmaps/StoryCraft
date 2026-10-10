@@ -299,3 +299,37 @@ fn unknown_things_become_warnings() {
     assert!(imported.warnings.iter().any(|w| w.contains("<star5>")));
     assert!(imported.warnings.iter().any(|w| w.contains("OnTimerEnd")));
 }
+
+#[test]
+fn imports_formatting_outlines_and_more_events() {
+    let styled = escape(
+        r##"<Document><Content><Block><Style Justification="Center"/><Span Text="Red"><Style FontIsBold="True" ForegroundColor="#FF0000"/></Span></Block></Content></Document>"##,
+    );
+    let slide = format!(
+        r#"<sld g="slide-a" name="A" layoutG="{LAYOUT}"><tmProps min="5000"/>
+        <shapeLst>
+          <textBox g="t1" typeName="" name="Text Box"><loc l="0" t="0" r="100" b="40"/><text>{styled}</text></textBox>
+          <rect g="r1" typeName="" name="Rectangle">
+            <bG><solidFill><clr><schemeClr val="accent1"/></clr></solidFill><solidLine><clr><srgbClr val="8F0000"/></clr></solidLine><lineStyle w="7"/></bG>
+            <loc l="0" t="50" r="100" b="100"/>
+          </rect>
+        </shapeLst>
+        <trigLst>
+          <trig g="e1"><data enabled="true" event="OnEnd" action="adjustVar" NavigationIntent="Unspecified"><other varG="{SCORE}" op="ass" dblVal="1"/></data></trig>
+          <trig g="e2"><data enabled="true" event="OnKeyPress" action="jumpToSlide" actSubType="spec" NavigationIntent="Unspecified"><keyPress keys="Enter"/><slide jumpG="slide-b"/></data></trig>
+          <trig g="e3"><data enabled="true" event="OnVariableValueChange" action="jumpToSlide" actSubType="spec" NavigationIntent="Unspecified"><slide jumpG="slide-b"/><other varChangeG="{SCORE}"/></data></trig>
+        </trigLst></sld>"#
+    );
+    let p = base_package(&slide).import().document.project;
+    let base = &p.scenes[0].slides[0].base;
+
+    let text = base.objects[0].text.as_ref().unwrap();
+    assert_eq!((text.align, text.bold, text.color), (HAlign::Center, true, Color::rgb(255, 0, 0)));
+    assert_eq!(base.objects[1].style.stroke, Some(Stroke { color: Color::rgb(0x8F, 0, 0), width: 7.0 }));
+
+    let event = |id: &str| base.triggers.iter().find(|t| t.id.as_str() == id).unwrap();
+    assert_eq!(event("e1").event, Event::TimelineEnds);
+    assert_eq!(event("e2").event, Event::KeyPressed { key: "Enter".into() });
+    assert_eq!(event("e2").action, Action::JumpToSlide { target: SlideTarget::Slide(Id::from("slide-b")) });
+    assert_eq!(event("e3").event, Event::VariableChanges { variable: Id::from(SCORE) });
+}

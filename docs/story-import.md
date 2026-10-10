@@ -8,20 +8,21 @@ Opening `.story` files is a core goal. The importer is built from sample project
 
 - scenes and slides (names, slide size, advance mode, timeline length)
 - layers (name, timeline length, "pause base layer")
-- text boxes, rectangles, rounded rectangles, ellipses, triangles, buttons and pictures, with position, fill (including theme colours), text and alt text
+- text boxes, rectangles, rounded rectangles, ellipses, triangles, buttons and pictures, with position, fill and outline (including theme colours), text and alt text
+- text formatting: alignment, bold, italic and colour (one style per text box)
 - object timing (start, duration, "show until end") and "initially hidden"
 - states, including built-in button states and colours defined relative to Normal
 - user variables (number, true/false, text)
-- triggers: jump to next/previous slide, hide layer, change state, adjust variable; events: click, hover, timeline starts
+- triggers: jump to next, previous or a specific slide; show and hide layer; change state; adjust variable
+- trigger events: click, hover, timeline starts and ends, key press, variable changes
 - conditions on variables and object states, joined by AND/OR
 
-Anything not converted is listed as a note after import. Known gaps, which need more samples:
+Anything not converted is listed as a note after import. Known gaps:
 
-- **Show layer** and **jump to a specific slide** targets
-- text formatting (font, size, colour, bold, alignment), which the samples so far did not use
-- "timeline ends", key press and variable-changes events
+- font family and size (not present in the samples so far)
+- the layer options "prevent clicking on the base layer" and "hide when the timeline finishes" (noted on import)
 - whether the AND/OR flag on a condition joins it to the previous or the next condition
-- outlines, gradients, other shape types, audio and video, quizzes
+- gradients, other shape types, audio and video, quizzes
 
 The structure that has been mapped is documented at the top of `crates/storycraft-story/src/import.rs`.
 
